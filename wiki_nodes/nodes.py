@@ -131,12 +131,15 @@ class Tag(BasicNode):
             except IndexError as e:
                 raise ValueError('Invalid wiki tag value') from e
         self.name = self.raw.name
-        self.value = as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
         self.attrs = self.raw.attrs
 
     def __repr__(self):
         attrs = f':{self.attrs}' if self.attrs else ''
         return f'<{type(self).__name__}[{self.name}{attrs}][{self.value}]>'
+
+    @cached_property
+    def value(self):
+        return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
 
     def __getitem__(self, item):
         return self.attrs[item]
@@ -572,12 +575,12 @@ def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
                     # log.debug(f'    > It is definitely the first object')
                     break
 
-    try:
-        if first_attr == 'tags' and len(values[first_attr]) == 1 and values[first_attr][0].name == 'small':
-            # log.debug(f'Treating tag {values[first_attr]!r} as a string')
-            first_attr = None   # Treat it like a String
-    except (TypeError, KeyError):
-        pass
+    # try:
+    #     if first_attr == 'tags' and len(values[first_attr]) == 1 and values[first_attr][0].name == 'small':
+    #         # log.debug(f'Treating tag {values[first_attr]!r} as a string')
+    #         first_attr = None   # Treat it like a String
+    # except (TypeError, KeyError):
+    #     pass
 
     if first_attr:
         raw_objs = wiki_attr_values(wiki_text, first_attr, values)
