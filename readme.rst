@@ -1,7 +1,10 @@
 Wiki Nodes
 ==========
 
-Library that provides
+Takes the next step with WikiText parsed by :mod:`wikitextparser` to process it into nodes based on what each section
+contains, and provide a more top-down approach to traversing content on a given page.
+
+This is still a work in process - some data types are not fully handled yet, and some aspects are subject to change.
 
 Installation
 ------------

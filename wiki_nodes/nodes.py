@@ -1,8 +1,6 @@
 """
 Takes the next step with WikiText parsed by :mod:`wikitextparser` to process it into nodes based on what each section
-actually contains.  This is only necessary because that library stops short of providing a fully processed tree; it
-returns a generic :class:`WikiText<wikitextparser.WikiText>` object that must be poked and prodded to extract nested
-data structures.
+contains, and provide a more top-down approach to traversing content on a given page.
 
 This is still a work in process - some data types are not fully handled yet, and some aspects are subject to change.
 
