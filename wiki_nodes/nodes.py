@@ -667,9 +667,11 @@ def extract_links(raw, root=None):
 
     content = []
     raw_str = raw.string.strip()
-    for link in raw.wikilinks:
+    links = raw.wikilinks
+    while links:
+        link = links.pop(0)
         before, link_text, raw_str = map(str.strip, raw_str.partition(link.string))
-        # log.debug(f'Split raw into:\nbefore={before!r}\nlink={link_text!r}\nafter={raw_str!r}\n')
+        # log.debug(f'Split raw into:\nbefore={before!r}\nlink={link_text!r}\nafter={raw_str!r}\nfor={link.string!r}')
         if before and raw_str:
             bm = end_pat.match(before)
             if bm:
@@ -683,6 +685,8 @@ def extract_links(raw, root=None):
         if before:
             content.append(String(before, root))
         content.append(Link(link_text, root))
+        if raw_str:
+            links = WikiText(raw_str).wikilinks     # Prevent breaking on nested links
 
     if raw_str:
         content.append(String(raw_str, root))
