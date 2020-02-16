@@ -61,7 +61,7 @@ class CompoundNode(Node):
         return []
 
     def __repr__(self):
-        return f'<{type(self).__name__}({self.children!r})>'
+        return f'<{type(self).__name__}{self.children!r}>'
 
     def __getitem__(self, item):
         return self.children[item]
@@ -139,6 +139,8 @@ class Tag(BasicNode):
 
     @cached_property
     def value(self):
+        if self.name == 'nowiki':
+            return String(self.raw.contents.strip(), self.root)
         return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
 
     def __getitem__(self, item):
@@ -162,6 +164,9 @@ class String(BasicNode):
 
     def __str__(self):
         return self.value
+
+    def __add__(self, other):
+        return String(self.raw.string + other.raw.string, self.root)
 
 
 class Link(BasicNode):
@@ -375,11 +380,6 @@ class Template(BasicNode):
         for arg in args:
             key = strip_style(arg.name)
             mapping[key] = as_node(arg.value.strip(), self.root, self.preserve_comments, strict_tags=True)
-
-        if 'infobox' in self.lc_name and type(mapping.get('name')) is CompoundNode:
-            name = mapping['name']
-            if len(name) == 2 and isinstance(name[0], Tag) and isinstance(name[1], String) and name[0].name == 'nowiki':
-                mapping['name'] = String(f'{name[0].value}{name[1].value}')
         return mapping
 
     def __getitem__(self, item):
@@ -575,13 +575,6 @@ def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
                     # log.debug(f'    > It is definitely the first object')
                     break
 
-    # try:
-    #     if first_attr == 'tags' and len(values[first_attr]) == 1 and values[first_attr][0].name == 'small':
-    #         # log.debug(f'Treating tag {values[first_attr]!r} as a string')
-    #         first_attr = None   # Treat it like a String
-    # except (TypeError, KeyError):
-    #     pass
-
     if first_attr:
         raw_objs = wiki_attr_values(wiki_text, first_attr, values)
         drop = first_attr == 'comments' and not preserve_comments
@@ -596,36 +589,8 @@ def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
             # log.debug(f'  > It was the only thing in this node: {node}')
             return None if drop else node
 
-        compound = CompoundNode(wiki_text, root, preserve_comments)
         before, node_str, after = map(str.strip, wiki_text.string.partition(raw_obj.string))
-
-        if before:
-            # log.debug(f'  > It had something before it: [{short_repr(before)}]')
-            before_node = as_node(before, root, preserve_comments)
-            if drop and not after:
-                return before_node
-            elif type(before_node) is CompoundNode:             # It was not a subclass that stands on its own
-                compound.children.extend(before_node.children)
-            elif before_node is not None:
-                compound.children.append(before_node)
-
-        if not drop:
-            compound.children.append(node)
-
-        if after:
-            # log.debug(f'  > It had something after it: [{short_repr(after)}]')
-            after_node = as_node(after, root, preserve_comments)
-            if drop and not before:
-                return after_node
-            elif type(after_node) is CompoundNode:
-                compound.children.extend(after_node.children)
-            elif after_node is None:
-                if len(compound) == 1:
-                    return compound[0]
-            else:
-                compound.children.append(after_node)
-
-        return compound
+        return _process_node_parts(wiki_text, node, before, after, drop, root, preserve_comments)
     else:
         # log.debug(f'No complex objs found in [{wiki_text(0, 30)!r}]')
         links = wiki_text.wikilinks
@@ -637,6 +602,59 @@ def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
         node = CompoundNode(wiki_text, root, preserve_comments)
         node.children.extend(extract_links(node.raw, root))
         return node
+
+
+def _process_node_parts(wiki_text, node, before, after, drop, root, preserve_comments):
+    before_node = as_node(before, root, preserve_comments) if before else None
+    after_node = as_node(after, root, preserve_comments) if after else None
+
+    if isinstance(node, Tag) and node.name == 'nowiki':
+        # Combine it with any surrounding Strings, or just take its value as a String if there's nothing to combine
+        # Only need to check for nowiki tags here since a String will always be returned instead of a nowiki tag
+        node = node.value
+        if not before and not after:
+            return node
+        elif isinstance(before_node, String):
+            if isinstance(after_node, String):
+                return before_node + node + after_node
+            else:
+                node = before_node + node
+                if not after:
+                    return node
+                before = None
+        elif isinstance(after_node, String):
+            node = node + after_node
+            if not before:
+                return node
+            after = None
+
+    compound = CompoundNode(wiki_text, root, preserve_comments)
+
+    if before:
+        # log.debug(f'  > It had something before it: [{short_repr(before)}]')
+        if drop and not after:
+            return before_node
+        elif type(before_node) is CompoundNode:  # It was not a subclass that stands on its own
+            compound.children.extend(before_node.children)
+        elif before_node is not None:
+            compound.children.append(before_node)
+
+    if not drop:
+        compound.children.append(node)
+
+    if after:
+        # log.debug(f'  > It had something after it: [{short_repr(after)}]')
+        if drop and not before:
+            return after_node
+        elif type(after_node) is CompoundNode:
+            compound.children.extend(after_node.children)
+        elif after_node is None:
+            if len(compound) == 1:
+                return compound[0]
+        else:
+            compound.children.append(after_node)
+
+    return compound
 
 
 def extract_links(raw, root=None):
