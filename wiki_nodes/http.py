@@ -11,7 +11,7 @@ import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from distutils.version import LooseVersion
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 from requests import RequestException
 
@@ -97,7 +97,7 @@ class MediaWikiClient(RequestsClient):
         return self.siteinfo['general']['articlepath'].replace('$1', '')
 
     def article_url_to_title(self, url):
-        return urlparse(url).path.replace(self.article_path_prefix, '', 1)
+        return urlparse(unquote(url)).path.replace(self.article_path_prefix, '', 1)
 
     def _update_params(self, params):
         """Include useful default parameters, and handle conversion of lists/tuples/sets to pipe-delimited strings."""
