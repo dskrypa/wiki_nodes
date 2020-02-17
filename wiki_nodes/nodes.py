@@ -179,7 +179,8 @@ class Link(BasicNode):
     @cached_property
     def show(self):
         """The text that would be shown for this link (without fragment)"""
-        return self.text or self.title
+        text = self.text or self.title
+        return text.strip() if text else None
 
     @cached_property
     def interwiki(self):
