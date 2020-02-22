@@ -394,7 +394,11 @@ class List(CompoundNode):
             if last_key:
                 _add_kv(node_fn(last_key[1]), None)
         else:
+            pat = re.compile('^(\'{2,5}[^:]+):\s*(\'{2,5})(.*)', re.DOTALL)
             for line in map(str.strip, self.raw.items):
+                m = pat.match(line)
+                if m:
+                    line = '{}{}: {}'.format(*m.groups())
                 key, val = map(node_fn, line.split(sep, maxsplit=1))
                 _add_kv(key, val)
         return data
