@@ -12,6 +12,7 @@ import re
 import sys
 from collections import OrderedDict
 from collections.abc import MutableMapping
+from copy import copy
 
 from wikitextparser import WikiText
 
@@ -41,6 +42,9 @@ class Node(ClearableCachedPropertyMixin):
 
     def __repr__(self):
         return f'<{self.__class__.__name__}()>'
+
+    def __bool__(self):
+        return bool(self.raw.string)
 
     def raw_pprint(self):
         print(self.raw.pformat())
@@ -83,6 +87,9 @@ class CompoundNode(Node):
 
     def __len__(self):
         return len(self.children)
+
+    def __bool__(self):
+        return bool(self.children)
 
     @property
     def only_basic(self):
@@ -138,7 +145,8 @@ class MappingNode(CompoundNode, MutableMapping):
         indent = (' ' * indentation)
         inside = indent + (' ' * 4)
         child_lines = (
-            '\n'.join(inside + line for line in f'{k!r}: {v.pformat()}'.splitlines()) for k, v in self.children.items()
+            '\n'.join(inside + line for line in f'{k!r}: {v.pformat() if v is not None else None}'.splitlines())
+            for k, v in self.children.items()
         )
         children = ',\n'.join(child_lines)
         return f'{indent}<{self.__class__.__name__}{{\n{children}\n{indent}}}>'
@@ -189,6 +197,9 @@ class String(BasicNode):
 
     def __add__(self, other):
         return String(self.raw.string + other.raw.string, self.root)
+
+    def __bool__(self):
+        return bool(self.value)
 
 
 class Link(BasicNode):
@@ -249,6 +260,9 @@ class ListEntry(CompoundNode):
             return f'<{self.__class__.__name__}({self.value!r}, {self.children!r})>'
         return f'<{self.__class__.__name__}({self.value!r})>'
 
+    def __bool__(self):
+        return bool(self.value) or bool(self.children)
+
     @cached_property
     def sub_list(self):
         if not self._children:
@@ -263,18 +277,28 @@ class ListEntry(CompoundNode):
             return []
         return sub_list.children
 
-    def _extend(self, text):
+    def _extend(self, text, convert=True):
         self.clear_cached_properties()
-        self.raw = WikiText(f'{self.raw.string}\n{text}')
+        text = f'** {text}'
         if self._children is None:
-            self._children = text
+            if convert and self.value is not None:
+                self._children = f'** {self.value.raw.string}\n{text}'
+                self.value = None
+                self.raw = WikiText(self._children)
+            else:
+                self.raw = WikiText(f'{self.raw.string}\n{text}')
+                self._children = text
         else:
+            self.raw = WikiText(f'{self.raw.string}\n{text}')
             self._children = f'{self._children}\n{text}'
 
     def pformat(self, indentation=0):
         indent = (' ' * indentation)
         inside = indent + (' ' * 4)
-        content = ['\n'.join(inside + line for line in self.value.pformat().splitlines())]
+        if self.value is not None:
+            content = ['\n'.join(inside + line for line in self.value.pformat().splitlines())]
+        else:
+            content = []
         if self.children:
             content.extend('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
 
@@ -293,6 +317,7 @@ class List(CompoundNode):
                 self.raw = self.raw.lists()[0]
             except IndexError as e:
                 raise ValueError('Invalid wiki list value') from e
+        self._as_mapping = None
 
     @cached_property
     def children(self):
@@ -300,15 +325,23 @@ class List(CompoundNode):
 
     def iter_flat(self):
         for child in self.children:
-            yield child.value
+            val = child.value
+            if val:
+                yield val
             if child.sub_list:
                 yield from child.sub_list.iter_flat()
 
+    def as_mapping(self, *args, **kwargs):
+        if self._as_mapping is None:
+            self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
+        return self._as_mapping
+
     def as_dict(self, sep=':', multiline=True):
-        data = {}
+        data = ordered_dict()
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
 
         def _add_kv(key, val):
+            # log.debug(f'Storing key={key!r} val={val!r}')
             if isinstance(key, String):
                 data[key.value] = val
             elif isinstance(key, Link):
@@ -317,13 +350,13 @@ class List(CompoundNode):
                 data[key.raw.string] = val
                 log.debug(f'Unexpected type for key={key!r} with val={val!r}')
 
-
         if multiline:
             pat = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL)
             last_key = None
             last_val = None
             for line in map(str.strip, self.raw.fullitems):
                 ctrl_chars, content = pat.match(line).groups()
+                # log.debug(f'Processing ctrl={ctrl_chars!r} content={content!r} last_key={last_key!r} last_val={last_val!r}')
                 c = ctrl_chars[-1]
                 if c == ';':    # key
                     if last_key:
@@ -336,10 +369,12 @@ class List(CompoundNode):
                         last_val = ListEntry(raw, self.root, self.preserve_comments, _value=node_fn(content))
                         _add_kv(node_fn(last_key[1]), last_val)
                         last_key = None
+                    elif last_val:
+                        last_val._extend(line[1:])
                     else:
-                        raise ValueError(f'Unexpected value={content!r} that did not follow a key in a definition list')
+                        raise ValueError(f'Unexpected value={content!r} in a definition list')
                 elif last_val:
-                    last_val._extend(line)
+                    last_val._extend(line[1:])
 
             if last_key:
                 _add_kv(node_fn(last_key[1]), None)
@@ -555,6 +590,89 @@ class Section(Node):
             return node
         return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)    # chop off the header
 
+    def processed(self, convert_maps=True, fix_trailing_lists=True, merge_maps=True):
+        """
+        The content of this section, processed to work around various issues.
+
+        :param bool fix_trailing_lists: If a ul/ol follows a definition list on the top level of this section's content,
+          and the last value in the definition list is None, update that value to be the list that follows
+        :return: CompoundNode
+        """
+        content = copy(self.content)
+
+        if convert_maps:
+            children = []
+            did_convert = False
+            for child in content:
+                if isinstance(child, List):
+                    try:
+                        as_map = child.as_mapping()
+                    except Exception:
+                        log.debug(f'Was not a mapping: {short_repr(child)}', exc_info=True)
+                    else:
+                        if as_map:
+                            did_convert = True
+                            child = as_map
+                            log.debug(f'Successfully converted to mapping: {short_repr(child)}')
+                        else:
+                            log.debug(f'Was not a mapping: {short_repr(child)}')
+
+                children.append(child)
+
+            if did_convert:
+                content.children.clear()
+                content.children.extend(children)
+
+        if fix_trailing_lists:
+            children = []
+            did_fix = False
+            last_map, last_key = None, None
+            for child in content:
+                if isinstance(child, List):
+                    if last_map:
+                        did_fix = True
+                        last_map[last_key] = child
+                        last_map, last_key = None, None
+                    else:
+                        children.append(child)
+                elif isinstance(child, MappingNode):
+                    children.append(child)
+                    key, val = list(child.items())[-1]
+                    if val is None:
+                        last_map, last_key = child, key
+                    else:
+                        last_map, last_key = None, None
+                else:
+                    children.append(child)
+                    last_map, last_key = None, None
+
+            if did_fix:
+                content.children.clear()
+                content.children.extend(children)
+
+        if merge_maps:
+            children = []
+            did_merge = False
+            last_map = None
+            for child in content:
+                if isinstance(child, MappingNode):
+                    if last_map:
+                        last_map.update(child)
+                        did_merge = True
+                    else:
+                        children.append(child)
+                        
+                    last_map = child
+                else:
+                    children.append(child)
+                    last_map = None
+
+            if did_merge:
+                content.children.clear()
+                content.children.extend(children)
+
+        return content
+
     def pprint(self, mode='reprs', indent='', recurse=True):
         if mode == 'content':
             print(self.raw.pformat())
@@ -583,24 +701,6 @@ WTP_TYPE_METHOD_NODE_MAP = {
 }
 WTP_ACCESS_FIRST = {'Tag', 'Table', 'WikiList'}
 WTP_ATTR_TO_NODE_MAP = {'tags': Tag, 'templates': Template, 'tables': Table, 'lists': List, 'comments': BasicNode}
-
-
-def short_repr(text):
-    text = str(text)
-    if len(text) <= 50:
-        return repr(text)
-    else:
-        return repr(f'{text[:24]}...{text[-23:]}')
-
-
-def wiki_attr_values(wiki_text, attr, known_values=None):
-    if known_values:
-        try:
-            return known_values[attr]
-        except KeyError:
-            pass
-    value = getattr(wiki_text, attr)
-    return value() if hasattr(value, '__call__') else value
 
 
 def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
@@ -769,3 +869,21 @@ def extract_links(raw, root=None):
     if raw_str:
         content.append(String(raw_str, root))
     return content
+
+
+def short_repr(text):
+    text = str(text)
+    if len(text) <= 50:
+        return repr(text)
+    else:
+        return repr(f'{text[:24]}...{text[-23:]}')
+
+
+def wiki_attr_values(wiki_text, attr, known_values=None):
+    if known_values:
+        try:
+            return known_values[attr]
+        except KeyError:
+            pass
+    value = getattr(wiki_text, attr)
+    return value() if hasattr(value, '__call__') else value
