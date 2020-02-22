@@ -270,12 +270,18 @@ class ListEntry(CompoundNode):
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
         return List(content, self.root, self.preserve_comments)
 
-    @cached_property
+    @property
     def children(self):
         sub_list = self.sub_list
         if not sub_list:
             return []
         return sub_list.children
+
+    def extend(self, list_node):
+        if self._children is None:
+            self.__dict__['sub_list'] = list_node
+        else:
+            self.sub_list.extend(list_node)
 
     def _extend(self, text, convert=True):
         self.clear_cached_properties()
@@ -296,17 +302,22 @@ class ListEntry(CompoundNode):
         indent = (' ' * indentation)
         inside = indent + (' ' * 4)
         if self.value is not None:
-            content = ['\n'.join(inside + line for line in self.value.pformat().splitlines())]
+            base = '\n'.join(inside + line for line in self.value.pformat().splitlines())
         else:
-            content = []
+            base = f'{inside}None'
+        children = None
         if self.children:
-            content.extend('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
+            nested = indent + (' ' * 8)
+            children = ',\n'.join('\n'.join(nested + line for line in c.pformat().splitlines()) for c in self.children)
 
-        if len(content) == 1 and content[0].count('\n') == 0:
-            return f'{indent}<{self.__class__.__name__}({content[0].strip()})>'
+        if not children and base.count('\n') == 0:
+            return f'{indent}<{self.__class__.__name__}({base.strip()})>'
         else:
-            children = ',\n'.join(content)
-            return f'{indent}<{self.__class__.__name__}(\n{children}\n{indent})>'
+            if children:
+                content = f'{base},\n{inside}[\n{children}\n{inside}]'
+            else:
+                content = base
+            return f'{indent}<{self.__class__.__name__}(\n{content}\n{indent})>'
 
 
 class List(CompoundNode):
@@ -318,10 +329,14 @@ class List(CompoundNode):
             except IndexError as e:
                 raise ValueError('Invalid wiki list value') from e
         self._as_mapping = None
+        self.start_char = self.raw.string[0]
 
     @cached_property
     def children(self):
         return [ListEntry(val, self.root, self.preserve_comments) for val in map(str.strip, self.raw.fullitems)]
+
+    def extend(self, list_node):
+        self.children.extend(list_node.children)
 
     def iter_flat(self):
         for child in self.children:
@@ -590,12 +605,16 @@ class Section(Node):
             return node
         return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)    # chop off the header
 
-    def processed(self, convert_maps=True, fix_trailing_lists=True, merge_maps=True):
+    def processed(self, convert_maps=True, fix_dl_last_none=True, fix_nested_dl_ul_ol=True, merge_maps=True):
         """
         The content of this section, processed to work around various issues.
 
-        :param bool fix_trailing_lists: If a ul/ol follows a definition list on the top level of this section's content,
+        :param bool convert_maps: Convert List objects to MappingNode objects, if possible
+        :param bool fix_dl_last_none: If a ul/ol follows a definition list on the top level of this section's content,
           and the last value in the definition list is None, update that value to be the list that follows
+        :param bool fix_nested_dl_ul_ol: When a dl contains a value that is a ul, and that ul contains a nested ol, fix
+          the lists so that they are properly nested
+        :param bool merge_maps: Merge consecutive MappingNode objects
         :return: CompoundNode
         """
         content = copy(self.content)
@@ -608,14 +627,15 @@ class Section(Node):
                     try:
                         as_map = child.as_mapping()
                     except Exception:
-                        log.debug(f'Was not a mapping: {short_repr(child)}', exc_info=True)
+                        # log.debug(f'Was not a mapping: {short_repr(child)}', exc_info=True)
+                        pass
                     else:
                         if as_map:
                             did_convert = True
                             child = as_map
-                            log.debug(f'Successfully converted to mapping: {short_repr(child)}')
-                        else:
-                            log.debug(f'Was not a mapping: {short_repr(child)}')
+                            # log.debug(f'Successfully converted to mapping: {short_repr(child)}')
+                        # else:
+                        #     log.debug(f'Was not a mapping: {short_repr(child)}')
 
                 children.append(child)
 
@@ -623,7 +643,7 @@ class Section(Node):
                 content.children.clear()
                 content.children.extend(children)
 
-        if fix_trailing_lists:
+        if fix_dl_last_none:
             children = []
             did_fix = False
             last_map, last_key = None, None
@@ -650,6 +670,39 @@ class Section(Node):
                 content.children.clear()
                 content.children.extend(children)
 
+        if fix_nested_dl_ul_ol:
+            children = []
+            did_fix = False
+            last_list, last_entry = None, None
+            for child in content:
+                if isinstance(child, MappingNode):
+                    children.append(child)
+                    key, val = list(child.items())[-1]
+                    if isinstance(val, List) and val.start_char == '*':
+                        last_list = val
+                        last_entry = val[-1]
+                    else:
+                        last_list, last_entry = None, None
+                elif isinstance(child, List):
+                    if last_list and child.start_char == '#':
+                        did_fix = True
+                        last_entry.extend(child)
+                    elif last_list and child.start_char == '*':
+                        did_fix = True
+                        last_list.extend(child)
+                        last_list = child
+                        last_entry = child[-1]
+                    else:
+                        children.append(child)
+                        last_list, last_entry = None, None
+                else:
+                    children.append(child)
+                    last_list, last_entry = None, None
+
+            if did_fix:
+                content.children.clear()
+                content.children.extend(children)
+
         if merge_maps:
             children = []
             did_merge = False
@@ -661,7 +714,7 @@ class Section(Node):
                         did_merge = True
                     else:
                         children.append(child)
-                        
+
                     last_map = child
                 else:
                     children.append(child)
