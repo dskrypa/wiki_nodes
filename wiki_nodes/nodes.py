@@ -16,7 +16,7 @@ from collections.abc import MutableMapping
 from wikitextparser import WikiText
 
 from .compat import cached_property
-from .utils import strip_style
+from .utils import strip_style, ClearableCachedPropertyMixin
 
 __all__ = [
     'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'String', 'Link', 'List', 'Table', 'Template', 'Root',
@@ -28,7 +28,7 @@ ordered_dict = OrderedDict if PY_LT_37 else dict            # 3.7+ dict retains 
 _NotSet = object()
 
 
-class Node:
+class Node(ClearableCachedPropertyMixin):
     def __init__(self, raw, root=None, preserve_comments=False):
         if isinstance(raw, str):
             raw = WikiText(raw)
@@ -40,15 +40,21 @@ class Node:
         return strip_style(self.raw.string, *args, **kwargs)
 
     def __repr__(self):
-        return f'<{type(self).__name__}()>'
+        return f'<{self.__class__.__name__}()>'
 
-    def pprint(self):
+    def raw_pprint(self):
         print(self.raw.pformat())
+
+    def pprint(self, indentation=0):
+        print(self.pformat(indentation))
+
+    def pformat(self, indentation=0):
+        return (' ' * indentation) + repr(self)
 
 
 class BasicNode(Node):
     def __repr__(self):
-        return f'<{type(self).__name__}({self.raw!r})>'
+        return f'<{self.__class__.__name__}({self.raw!r})>'
 
     @property
     def is_basic(self):
@@ -61,7 +67,7 @@ class CompoundNode(Node):
         return []
 
     def __repr__(self):
-        return f'<{type(self).__name__}{self.children!r}>'
+        return f'<{self.__class__.__name__}{self.children!r}>'
 
     def __getitem__(self, item):
         return self.children[item]
@@ -110,6 +116,13 @@ class CompoundNode(Node):
         """
         return next(self.find_all(*args, **kwargs), None)
 
+    def pformat(self, indentation=0):
+        indent = (' ' * indentation)
+        inside = indent + (' ' * 4)
+        child_lines = ('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
+        children = ',\n'.join(child_lines)
+        return f'{indent}<{self.__class__.__name__}[\n{children}\n{indent}]>'
+
 
 class MappingNode(CompoundNode, MutableMapping):
     def __init__(self, raw, root=None, preserve_comments=False, content=None):
@@ -120,6 +133,15 @@ class MappingNode(CompoundNode, MutableMapping):
     @cached_property
     def children(self):
         return ordered_dict()
+
+    def pformat(self, indentation=0):
+        indent = (' ' * indentation)
+        inside = indent + (' ' * 4)
+        child_lines = (
+            '\n'.join(inside + line for line in f'{k!r}: {v.pformat()}'.splitlines()) for k, v in self.children.items()
+        )
+        children = ',\n'.join(child_lines)
+        return f'{indent}<{self.__class__.__name__}{{\n{children}\n{indent}}}>'
 
 
 class Tag(BasicNode):
@@ -135,7 +157,7 @@ class Tag(BasicNode):
 
     def __repr__(self):
         attrs = f':{self.attrs}' if self.attrs else ''
-        return f'<{type(self).__name__}[{self.name}{attrs}][{self.value}]>'
+        return f'<{self.__class__.__name__}[{self.name}{attrs}][{self.value}]>'
 
     @cached_property
     def value(self):
@@ -160,7 +182,7 @@ class String(BasicNode):
         return self.value.lower()
 
     def __repr__(self):
-        return f'<{type(self).__name__}({self.raw.string.strip()!r})>'
+        return f'<{self.__class__.__name__}({self.raw.string.strip()!r})>'
 
     def __str__(self):
         return self.value
@@ -199,14 +221,17 @@ class Link(BasicNode):
             if parts[0] in ('www', 'wiki', 'en'):       # omit common prefixes
                 parts = parts[1:]
             site = '.'.join(parts)
-            return f'<{type(self).__name__}:{self.link.string!r}@{site}>'
-        return f'<{type(self).__name__}:{self.link.string!r}>'
+            return f'<{self.__class__.__name__}:{self.link.string!r}@{site}>'
+        return f'<{self.__class__.__name__}:{self.link.string!r}>'
 
 
 class ListEntry(CompoundNode):
-    def __init__(self, raw, root=None, preserve_comments=False):
+    def __init__(self, raw, root=None, preserve_comments=False, _value=None):
         super().__init__(raw, root, preserve_comments)
-        if type(self.raw) is WikiText:
+        if _value:
+            self.value = _value
+            self._children = None
+        elif type(self.raw) is WikiText:
             try:
                 as_list = self.raw.lists()[0]
             except IndexError:
@@ -221,8 +246,8 @@ class ListEntry(CompoundNode):
 
     def __repr__(self):
         if self._children:
-            return f'<{type(self).__name__}({self.value!r}, {self.children!r})>'
-        return f'<{type(self).__name__}({self.value!r})>'
+            return f'<{self.__class__.__name__}({self.value!r}, {self.children!r})>'
+        return f'<{self.__class__.__name__}({self.value!r})>'
 
     @cached_property
     def sub_list(self):
@@ -237,6 +262,27 @@ class ListEntry(CompoundNode):
         if not sub_list:
             return []
         return sub_list.children
+
+    def _extend(self, text):
+        self.clear_cached_properties()
+        self.raw = WikiText(f'{self.raw.string}\n{text}')
+        if self._children is None:
+            self._children = text
+        else:
+            self._children = f'{self._children}\n{text}'
+
+    def pformat(self, indentation=0):
+        indent = (' ' * indentation)
+        inside = indent + (' ' * 4)
+        content = ['\n'.join(inside + line for line in self.value.pformat().splitlines())]
+        if self.children:
+            content.extend('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
+
+        if len(content) == 1 and content[0].count('\n') == 0:
+            return f'{indent}<{self.__class__.__name__}({content[0].strip()})>'
+        else:
+            children = ',\n'.join(content)
+            return f'{indent}<{self.__class__.__name__}(\n{children}\n{indent})>'
 
 
 class List(CompoundNode):
@@ -258,18 +304,49 @@ class List(CompoundNode):
             if child.sub_list:
                 yield from child.sub_list.iter_flat()
 
-    def as_dict(self, sep=':'):
+    def as_dict(self, sep=':', multiline=True):
         data = {}
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
-        for line in map(str.strip, self.raw.items):
-            key, val = map(node_fn, line.split(sep, maxsplit=1))
+
+        def _add_kv(key, val):
             if isinstance(key, String):
                 data[key.value] = val
             elif isinstance(key, Link):
                 data[key.text] = val
             else:
                 data[key.raw.string] = val
-                log.debug(f'Unexpected key type on line: {line!r}')
+                log.debug(f'Unexpected type for key={key!r} with val={val!r}')
+
+
+        if multiline:
+            pat = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL)
+            last_key = None
+            last_val = None
+            for line in map(str.strip, self.raw.fullitems):
+                ctrl_chars, content = pat.match(line).groups()
+                c = ctrl_chars[-1]
+                if c == ';':    # key
+                    if last_key:
+                        _add_kv(node_fn(last_key[1]), None)
+                        last_val = None
+                    last_key = (line, content)
+                elif c == ':':  # value
+                    if last_key:
+                        raw = f'{last_key[0]}\n{line}'
+                        last_val = ListEntry(raw, self.root, self.preserve_comments, _value=node_fn(content))
+                        _add_kv(node_fn(last_key[1]), last_val)
+                        last_key = None
+                    else:
+                        raise ValueError(f'Unexpected value={content!r} that did not follow a key in a definition list')
+                elif last_val:
+                    last_val._extend(line)
+
+            if last_key:
+                _add_kv(node_fn(last_key[1]), None)
+        else:
+            for line in map(str.strip, self.raw.items):
+                key, val = map(node_fn, line.split(sep, maxsplit=1))
+                _add_kv(key, val)
         return data
 
 
@@ -342,7 +419,7 @@ class TableSeparator:
         self.value = value
 
     def __repr__(self):
-        return f'<{type(self).__name__}({self.value!r})>'
+        return f'<{self.__class__.__name__}({self.value!r})>'
 
 
 class Template(BasicNode):
@@ -355,7 +432,7 @@ class Template(BasicNode):
         self.lc_name = self.name.lower()
 
     def __repr__(self):
-        return f'<{type(self).__name__}({self.name!r}: {self.value!r})>'
+        return f'<{self.__class__.__name__}({self.name!r}: {self.value!r})>'
 
     @cached_property
     def is_basic(self):
@@ -424,7 +501,7 @@ class Section(Node):
         self.children = ordered_dict()
 
     def __repr__(self):
-        return f'<{type(self).__name__}[{self.level}: {self.title}]>'
+        return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
     def __getitem__(self, item):
         return self.children[item]

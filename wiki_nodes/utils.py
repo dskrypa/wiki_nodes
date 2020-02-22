@@ -4,8 +4,11 @@
 
 import logging
 import re
+from contextlib import suppress
 
-__all__ = ['strip_style', 'partitioned']
+from .compat import cached_property
+
+__all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin']
 log = logging.getLogger(__name__)
 
 
@@ -50,3 +53,24 @@ def partitioned(seq, n):
     """
     for i in range(0, len(seq), n):
         yield seq[i: i + n]
+
+
+class ClearableCachedPropertyMixin:
+    @classmethod
+    def _cached_properties(cls):
+        cached_properties = {}
+        for clz in cls.mro():
+            if clz == cls:
+                for k, v in cls.__dict__.items():
+                    if isinstance(v, cached_property):
+                        cached_properties[k] = v
+            else:
+                with suppress(AttributeError):
+                    # noinspection PyUnresolvedReferences
+                    cached_properties.update(clz._cached_properties())
+        return cached_properties
+
+    def clear_cached_properties(self):
+        for prop in self._cached_properties():
+            with suppress(KeyError):
+                del self.__dict__[prop]
