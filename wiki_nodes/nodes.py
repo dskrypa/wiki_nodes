@@ -755,13 +755,15 @@ class Section(Node):
 WTP_TYPE_METHOD_NODE_MAP = {
     'Template': 'templates',
     'Comment': 'comments',
-    'ExtensionTag': 'tags',     # TODO: version 0.30.0 changes this to .get_tags()
-    'Tag': 'tags',              # Requires .tags() to be called before being in ._type_to_spans
+    'ExtensionTag': 'get_tags',
+    'Tag': 'get_tags',          # Requires .get_tags() to be called before being in ._type_to_spans
     'Table': 'tables',          # Requires .tables to be accessed before being in ._type_to_spans
-    'WikiList': 'lists',        # Requires .lists() to be called before being in ._type_to_spans
+    'WikiList': 'get_lists',    # Requires .get_lists() to be called before being in ._type_to_spans
 }
 WTP_ACCESS_FIRST = {'Tag', 'Table', 'WikiList'}
-WTP_ATTR_TO_NODE_MAP = {'tags': Tag, 'templates': Template, 'tables': Table, 'lists': List, 'comments': BasicNode}
+WTP_ATTR_TO_NODE_MAP = {
+    'get_tags': Tag, 'templates': Template, 'tables': Table, 'get_lists': List, 'comments': BasicNode
+}
 
 
 def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
