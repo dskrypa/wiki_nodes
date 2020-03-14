@@ -355,7 +355,7 @@ class List(CompoundNode):
             self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
         return self._as_mapping
 
-    def as_dict(self, sep=':', multiline=True):
+    def as_dict(self, sep=':', multiline=None):
         data = ordered_dict()
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
 
@@ -369,43 +369,54 @@ class List(CompoundNode):
                 data[key.raw.string] = val
                 log.debug(f'Unexpected type for key={key!r} with val={val!r}')
 
-        if multiline:
-            pat = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL)
-            last_key = None
-            last_val = None
-            for line in map(str.strip, self.raw.fullitems):
-                ctrl_chars, content = pat.match(line).groups()
-                # log.debug(f'Processing ctrl={ctrl_chars!r} content={content!r} last_key={last_key!r} last_val={last_val!r}')
-                c = ctrl_chars[-1]
-                if c == ';':    # key
-                    if last_key:
-                        _add_kv(node_fn(last_key[1]), None)
-                        last_val = None
-                    last_key = (line, content)
-                elif c == ':':  # value
-                    if last_key:
-                        raw = f'{last_key[0]}\n{line}'
-                        last_val = ListEntry(raw, self.root, self.preserve_comments, _value=node_fn(content))
-                        _add_kv(node_fn(last_key[1]), last_val)
-                        last_key = None
-                    elif last_val:
-                        last_val._extend(line[1:])
-                    else:
-                        raise ValueError(f'Unexpected value={content!r} in a definition list')
+        if multiline is None:
+            self._as_multiline_dict(node_fn, _add_kv)
+            if not data:
+                self._as_inline_dict(node_fn, _add_kv, sep)
+        elif multiline:
+            self._as_multiline_dict(node_fn, _add_kv)
+        else:
+            self._as_inline_dict(node_fn, _add_kv, sep)
+
+        return data
+
+    def _as_multiline_dict(self, node_fn, _add_kv):
+        pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
+        last_key = None
+        last_val = None
+        for line in map(str.strip, self.raw.fullitems):
+            ctrl_chars, content = pat_match(line).groups()
+            # log.debug(f'Processing ctrl={ctrl_chars!r} content={content!r} last_key={last_key!r} last_val={last_val!r}')
+            c = ctrl_chars[-1]
+            if c == ';':  # key
+                if last_key:
+                    _add_kv(node_fn(last_key[1]), None)
+                    last_val = None
+                last_key = (line, content)
+            elif c == ':':  # value
+                if last_key:
+                    raw = f'{last_key[0]}\n{line}'
+                    last_val = ListEntry(raw, self.root, self.preserve_comments, _value=node_fn(content))
+                    _add_kv(node_fn(last_key[1]), last_val)
+                    last_key = None
                 elif last_val:
                     last_val._extend(line[1:])
+                else:
+                    raise ValueError(f'Unexpected value={content!r} in a definition list')
+            elif last_val:
+                last_val._extend(line[1:])
 
-            if last_key:
-                _add_kv(node_fn(last_key[1]), None)
-        else:
-            pat = re.compile('^(\'{2,5}[^:]+):\s*(\'{2,5})(.*)', re.DOTALL)
-            for line in map(str.strip, self.raw.items):
-                m = pat.match(line)
-                if m:
-                    line = '{}{}: {}'.format(*m.groups())
-                key, val = map(node_fn, line.split(sep, maxsplit=1))
-                _add_kv(key, val)
-        return data
+        if last_key:
+            _add_kv(node_fn(last_key[1]), None)
+
+    def _as_inline_dict(self, node_fn, _add_kv, sep):
+        pat_match = re.compile('^(\'{2,5}[^:]+):\s*(\'{2,5})(.*)', re.DOTALL).match
+        for line in map(str.strip, self.raw.items):
+            m = pat_match(line)
+            if m:
+                line = '{}{}: {}'.format(*m.groups())
+            key, val = map(node_fn, line.split(sep, maxsplit=1))
+            _add_kv(key, val)
 
 
 class Table(CompoundNode):
