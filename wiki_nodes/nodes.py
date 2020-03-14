@@ -216,6 +216,10 @@ class Link(BasicNode):
         return text.strip() if text else None
 
     @cached_property
+    def source_site(self):
+        return self.root.site if self.root else None
+
+    @cached_property
     def interwiki(self):
         return ':' in self.title
 
