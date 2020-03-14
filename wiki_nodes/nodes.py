@@ -157,7 +157,7 @@ class Tag(BasicNode):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
-                self.raw = self.raw.tags()[0]
+                self.raw = self.raw.get_tags()[0]
             except IndexError as e:
                 raise ValueError('Invalid wiki tag value') from e
         self.name = self.raw.name
@@ -248,7 +248,7 @@ class ListEntry(CompoundNode):
             self._children = None
         elif type(self.raw) is WikiText:
             try:
-                as_list = self.raw.lists()[0]
+                as_list = self.raw.get_lists()[0]
             except IndexError:
                 self.value = as_node(self.raw, self.root, preserve_comments)
                 self._children = None
@@ -381,11 +381,11 @@ class List(CompoundNode):
         return data
 
     def _as_multiline_dict(self, node_fn, _add_kv):
-        pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
+        ctrl_pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
         last_key = None
         last_val = None
         for line in map(str.strip, self.raw.fullitems):
-            ctrl_chars, content = pat_match(line).groups()
+            ctrl_chars, content = ctrl_pat_match(line).groups()
             # log.debug(f'Processing ctrl={ctrl_chars!r} content={content!r} last_key={last_key!r} last_val={last_val!r}')
             c = ctrl_chars[-1]
             if c == ';':  # key
@@ -410,12 +410,21 @@ class List(CompoundNode):
             _add_kv(node_fn(last_key[1]), None)
 
     def _as_inline_dict(self, node_fn, _add_kv, sep):
-        pat_match = re.compile('^(\'{2,5}[^:]+):\s*(\'{2,5})(.*)', re.DOTALL).match
-        for line in map(str.strip, self.raw.items):
-            m = pat_match(line)
+        ctrl_pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
+        style_pat_match = re.compile(r'^(\'{2,5}[^' + sep + r']+)' + sep + r'\s*(\'{2,5})(.*)', re.DOTALL).match
+        reformatter = '{{}}{{}}{} {{}}'.format(sep)
+
+        for line in map(str.strip, self.raw.fullitems):
+            ctrl_chars, content = map(str.strip, ctrl_pat_match(line).groups())
+            m = style_pat_match(content)
             if m:
-                line = '{}{}: {}'.format(*m.groups())
-            key, val = map(node_fn, line.split(sep, maxsplit=1))
+                content = reformatter.format(*m.groups())
+
+            raw_key, raw_val = content.split(sep, maxsplit=1)
+            if '\n' in raw_val:
+                raw_val = '\n'.join(val_line[1:] for val_line in filter(None, raw_val.splitlines()))
+
+            key, val = map(node_fn, (raw_key, raw_val))
             _add_kv(key, val)
 
 
