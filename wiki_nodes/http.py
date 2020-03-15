@@ -139,6 +139,8 @@ class MediaWikiClient(RequestsClient):
         if 'revisions' in properties:               # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Revisions
             if self.mw_version >= LooseVersion('1.32'):
                 params['rvslots'] = 'main'
+        if params.get('list') == 'allcategories':
+            params.setdefault('aclimit', 500)
 
         titles = params.pop('titles', None)
         if titles:
@@ -153,9 +155,11 @@ class MediaWikiClient(RequestsClient):
         else:
             return self._query(**params)
 
-    def _query(self, **params):
+    def _query(self, *, no_parse=False, **params):
         params = self._update_params(params)
         resp = self.get('api.php', params=params)
+        if no_parse:
+            return resp.json()
         parsed, more = self._parse_query(resp)
         skip_merge = {'pageid', 'ns', 'title'}
         while more:
@@ -205,46 +209,54 @@ class MediaWikiClient(RequestsClient):
         except KeyError:
             log.debug(f'Response from {resp.url} contained no \'query\' key; found: {", ".join(response)}')
             return {}, None
-        try:
-            pages = results['pages']
-        except KeyError:
-            log.debug(f'Query results from {resp.url} contained no \'pages\' key; found: {", ".join(results)}')
-            return {}, None
+
+        if 'pages' in results:
+            parsed = self._parse_query_pages(results)
+        elif 'allcategories' in results:
+            parsed = {row['category']: row['size'] for row in results['allcategories']}
         else:
-            redirects = results.get('redirects', [])
-            redirects = {r['to']: r['from'] for r in (redirects.values() if isinstance(redirects, dict) else redirects)}
-            if isinstance(pages, dict):
-                pages = pages.values()
+            query_keys = ', '.join(results)
+            log.debug(f'Query results from {resp.url} did not contain any handled keys; found: {query_keys}')
+            return {}, None
 
-            if self.mw_version >= LooseVersion('1.25'):
-                iw_key = 'title'
-                rev_key = 'content'
-            else:
-                iw_key, rev_key = '*', '*'
+        more = response.get('query-continue')
+        return parsed, more
 
-            parsed = {}
-            for page in pages:
-                title = page['title']
-                qlog.debug(f'Processing page with title={title!r}, keys: {", ".join(sorted(page))}')
-                content = parsed[title] = {'redirected_from': redirects.get(title)}
-                for key, val in page.items():
-                    if key == 'revisions':
-                        if self.mw_version >= LooseVersion('1.32'):
-                            content[key] = [rev['slots']['main']['content'] for rev in val]
-                        else:
-                            content[key] = [rev[rev_key] for rev in val]
-                    elif key == 'categories':
-                        content[key] = [cat['title'].split(':', maxsplit=1)[1] for cat in val]
-                    elif key == 'iwlinks':
-                        iwlinks = content[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
-                        for iwlink in val:
-                            iwlinks[iwlink['prefix']][iwlink[iw_key]] = iwlink['url']
-                    elif key == 'links':
-                        content[key] = [link['title'] for link in val]
+    def _parse_query_pages(self, results):
+        pages = results['pages']
+        redirects = results.get('redirects', [])
+        redirects = {r['to']: r['from'] for r in (redirects.values() if isinstance(redirects, dict) else redirects)}
+        if isinstance(pages, dict):
+            pages = pages.values()
+
+        if self.mw_version >= LooseVersion('1.25'):
+            iw_key = 'title'
+            rev_key = 'content'
+        else:
+            iw_key, rev_key = '*', '*'
+
+        parsed = {}
+        for page in pages:
+            title = page['title']
+            qlog.debug(f'Processing page with title={title!r}, keys: {", ".join(sorted(page))}')
+            content = parsed[title] = {'redirected_from': redirects.get(title)}
+            for key, val in page.items():
+                if key == 'revisions':
+                    if self.mw_version >= LooseVersion('1.32'):
+                        content[key] = [rev['slots']['main']['content'] for rev in val]
                     else:
-                        content[key] = val
-            more = response.get('query-continue')
-            return parsed, more
+                        content[key] = [rev[rev_key] for rev in val]
+                elif key == 'categories':
+                    content[key] = [cat['title'].split(':', maxsplit=1)[1] for cat in val]
+                elif key == 'iwlinks':
+                    iwlinks = content[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
+                    for iwlink in val:
+                        iwlinks[iwlink['prefix']][iwlink[iw_key]] = iwlink['url']
+                elif key == 'links':
+                    content[key] = [link['title'] for link in val]
+                else:
+                    content[key] = val
+        return parsed
 
     def parse(self, **params):
         """
