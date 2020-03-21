@@ -556,7 +556,7 @@ class Root(Node):
         return self.sections[item]
 
     @cached_property
-    def sections(self):
+    def sections(self) -> 'Section':
         sections = iter(self.raw.sections)
         root = Section(next(sections), self, self.preserve_comments)
         last_by_level = {0: root}
@@ -576,7 +576,7 @@ class Section(Node):
         super().__init__(raw, root, preserve_comments)
         self.title = strip_style(self.raw.title)
         self.level = self.raw.level
-        self.children = ordered_dict()
+        self.children = ordered_dict()  # populated by Root.sections
 
     def __repr__(self):
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
@@ -614,17 +614,22 @@ class Section(Node):
                 non_basic = []
                 remainder = []
                 children = iter(node)
+                found_infobox = False
                 for child in children:
                     if isinstance(child, String):
+                        # log.debug(f'Splitting section with {len(non_basic)} non-basic nodes before {short_repr(child)}')
                         remainder.append(child)
                         break
                     elif isinstance(child, Link) and not child.title.lower().startswith('file:'):
+                        # log.debug(f'Splitting section with {len(non_basic)} non-basic nodes before {short_repr(child)}')
                         remainder.append(child)
                         break
                     else:
+                        if isinstance(child, Template) and 'infobox' in child.name.lower():
+                            found_infobox = True
                         non_basic.append(child)
                 remainder.extend(children)
-                if non_basic and remainder:
+                if found_infobox and non_basic and remainder:
                     node = CompoundNode('\n'.join(n.raw.string for n in non_basic), self.root, self.preserve_comments)
                     node.children.extend(non_basic)
                     node_2 = CompoundNode(' '.join(n.raw.string for n in remainder), self.root, self.preserve_comments)
@@ -651,6 +656,7 @@ class Section(Node):
             children = []
             did_convert = False
             for child in content:
+
                 if isinstance(child, List):
                     try:
                         as_map = child.as_mapping()
@@ -661,7 +667,7 @@ class Section(Node):
                         if as_map:
                             did_convert = True
                             child = as_map
-                            # log.debug(f'Successfully converted to mapping: {short_repr(child)}')
+                        #     log.debug(f'Successfully converted to mapping: {short_repr(child)}')
                         # else:
                         #     log.debug(f'Was not a mapping: {short_repr(child)}')
 
@@ -754,22 +760,23 @@ class Section(Node):
 
         return content
 
-    def pprint(self, mode='reprs', indent='', recurse=True):
-        if mode == 'content':
+    def pprint(self, mode='reprs', indent=0, recurse=True):
+        if mode == 'raw':
             print(self.raw.pformat())
-            if recurse:
-                for child in self.children.values():
-                    child.pprint(mode, recurse=recurse)
         elif mode == 'headers':
-            print(f'{indent}{"=" * self.level}{self.title}{"=" * self.level}')
-            if recurse:
-                for child in self.children.values():
-                    child.pprint(mode, indent=indent + ' ' * 4, recurse=recurse)
-        elif mode == 'reprs':
-            print(f'{indent}{self}')
-            if recurse:
-                for child in self.children.values():
-                    child.pprint(mode, indent=indent + ' ' * 4, recurse=recurse)
+            print(f'{" " * indent}{"=" * self.level}{self.title}{"=" * self.level}')
+            indent += 4
+        elif mode in ('reprs', 'content', 'processed'):
+            print(f'{" " * indent}{self}')
+            indent += 4
+            if mode == 'content':
+                self.content.pprint(indent)
+            elif mode == 'processed':
+                self.processed().pprint(indent)
+
+        if recurse:
+            for child in self.children.values():
+                child.pprint(mode, indent=indent, recurse=recurse)
 
 
 WTP_TYPE_METHOD_NODE_MAP = {
@@ -853,7 +860,7 @@ def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
         before, node_str, after = map(str.strip, wiki_text.string.partition(raw_obj.string))
         return _process_node_parts(wiki_text, node, before, after, drop, root, preserve_comments)
     else:
-        # log.debug(f'No complex objs found in [{wiki_text(0, 30)!r}]')
+        # log.debug(f'No complex objs found in [{wiki_text(0, 50)!r}]')
         links = wiki_text.wikilinks
         if not links:
             return String(wiki_text, root)
