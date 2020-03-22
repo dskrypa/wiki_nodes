@@ -12,7 +12,7 @@ __all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin']
 log = logging.getLogger(__name__)
 
 
-def strip_style(text, strip=True):
+def strip_style(text: str, strip=True) -> str:
     """
     Strip style tags from the given wiki text string.
 

@@ -13,6 +13,7 @@ import sys
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from copy import copy
+from typing import Iterable, Optional, Union, TypeVar, Type, Generator
 
 from wikitextparser import WikiText
 
@@ -27,17 +28,18 @@ log = logging.getLogger(__name__)
 PY_LT_37 = sys.version_info.major == 3 and sys.version_info.minor < 7
 ordered_dict = OrderedDict if PY_LT_37 else dict            # 3.7+ dict retains insertion order; dict repr is cleaner
 _NotSet = object()
+N = TypeVar('N', bound='Node')
 
 
 class Node(ClearableCachedPropertyMixin):
-    def __init__(self, raw, root=None, preserve_comments=False):
+    def __init__(self, raw: Union[str, WikiText], root: Optional['Root'] = None, preserve_comments=False):
         if isinstance(raw, str):
             raw = WikiText(raw)
         self.raw = raw
         self.preserve_comments = preserve_comments
         self.root = root
 
-    def stripped(self, *args, **kwargs):
+    def stripped(self, *args, **kwargs) -> str:
         return strip_style(self.raw.string, *args, **kwargs)
 
     def __repr__(self):
@@ -101,7 +103,7 @@ class CompoundNode(Node):
         """True if all children are basic; not cached because children may change"""
         return type(self) is CompoundNode and all(c.is_basic for c in self.children)
 
-    def find_all(self, node_cls, recurse=False, **kwargs):
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Generator[N, None, None]:
         """
         Find all descendent nodes of the given type, optionally with additional matching criteria.
 
@@ -119,7 +121,7 @@ class CompoundNode(Node):
             if recurse and isinstance(value, CompoundNode):
                 yield from value.find_all(node_cls, recurse, **kwargs)
 
-    def find_one(self, *args, **kwargs):
+    def find_one(self, *args, **kwargs) -> Optional[Node]:
         """
         :param args: Positional args to pass to :meth:`.find_all`
         :param kwargs: Keyword args to pass to :meth:`.find_all`
@@ -134,6 +136,14 @@ class CompoundNode(Node):
         child_lines = ('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
         children = ',\n'.join(child_lines)
         return f'{indent}<{self.__class__.__name__}[\n{children}\n{indent}]>'
+
+    @classmethod
+    def from_nodes(
+            cls, nodes: Iterable[Node], root: Optional['Root'] = None, preserve_comments=False, delim: str = '\n'
+    ) -> 'CompoundNode':
+        node = cls(delim.join(n.raw.string for n in nodes), root, preserve_comments)
+        node.children.extend(nodes)
+        return node
 
 
 class MappingNode(CompoundNode, MutableMapping):
@@ -334,7 +344,7 @@ class List(CompoundNode):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
-                self.raw = self.raw.lists()[0]
+                self.raw = self.raw.get_lists()[0]
             except IndexError as e:
                 raise ValueError('Invalid wiki list value') from e
         self._as_mapping = None
@@ -511,6 +521,11 @@ class Template(BasicNode):
 
     def __init__(self, raw, root=None, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
+        if type(self.raw) is WikiText:
+            try:
+                self.raw = self.raw.templates[0]
+            except IndexError as e:
+                raise ValueError('Invalid wiki template value') from e
         self.name = self.raw.name.strip()
         self.lc_name = self.name.lower()
 
@@ -579,6 +594,11 @@ class Root(Node):
 class Section(Node):
     def __init__(self, raw, root, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
+        if type(self.raw) is WikiText:
+            try:
+                self.raw = self.raw.get_sections()[0]
+            except IndexError as e:
+                raise ValueError('Invalid wiki section value') from e
         self.title = strip_style(self.raw.title)
         self.level = self.raw.level
         self.children = ordered_dict()  # populated by Root.sections
@@ -598,7 +618,8 @@ class Section(Node):
             return max(c.depth for c in self.children.values()) + 1
         return 0
 
-    def find(self, title):
+    def find(self, title: str) -> 'Section':
+        """Find the subsection with the given title"""
         try:
             return self.children[title]
         except KeyError:
@@ -635,11 +656,8 @@ class Section(Node):
                         non_basic.append(child)
                 remainder.extend(children)
                 if found_infobox and non_basic and remainder:
-                    node = CompoundNode('\n'.join(n.raw.string for n in non_basic), self.root, self.preserve_comments)
-                    node.children.extend(non_basic)
-                    node_2 = CompoundNode(' '.join(n.raw.string for n in remainder), self.root, self.preserve_comments)
-                    node_2.children.extend(remainder)
-                    node.children.append(node_2)
+                    node = CompoundNode.from_nodes(non_basic, self.root, self.preserve_comments)
+                    node.children.append(CompoundNode.from_nodes(remainder, self.root, self.preserve_comments, ' '))
             return node
         return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)    # chop off the header
 
@@ -798,7 +816,7 @@ WTP_ATTR_TO_NODE_MAP = {
 }
 
 
-def as_node(wiki_text, root=None, preserve_comments=False, strict_tags=False):
+def as_node(wiki_text: Union[str, WikiText], root: Optional[Root] = None, preserve_comments=False, strict_tags=False):
     """
     :param str|WikiText wiki_text: The content to process
     :param Root root: The root node that is an ancestor of this node
