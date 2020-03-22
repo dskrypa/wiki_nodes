@@ -46,6 +46,11 @@ class Node(ClearableCachedPropertyMixin):
     def __bool__(self):
         return bool(self.raw.string)
 
+    def __eq__(self, other):
+        if other.__class__ != self.__class__:
+            return False
+        return self.raw.string == other.raw.string
+
     def raw_pprint(self):
         print(self.raw.pformat())
 
