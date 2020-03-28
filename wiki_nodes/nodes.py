@@ -13,7 +13,7 @@ import sys
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from copy import copy
-from typing import Iterable, Optional, Union, TypeVar, Type, Generator
+from typing import Iterable, Optional, Union, TypeVar, Type, Generator, List as ListType, Dict, Callable
 
 from wikitextparser import WikiText
 
@@ -351,13 +351,13 @@ class List(CompoundNode):
         self.start_char = self.raw.string[0]
 
     @cached_property
-    def children(self):
+    def children(self) -> ListType[ListEntry]:
         return [ListEntry(val, self.root, self.preserve_comments) for val in map(str.strip, self.raw.fullitems)]
 
-    def extend(self, list_node):
+    def extend(self, list_node: 'List'):
         self.children.extend(list_node.children)
 
-    def iter_flat(self):
+    def iter_flat(self) -> Generator[N, None, None]:
         for child in self.children:
             val = child.value
             if val:
@@ -365,12 +365,12 @@ class List(CompoundNode):
             if child.sub_list:
                 yield from child.sub_list.iter_flat()
 
-    def as_mapping(self, *args, **kwargs):
+    def as_mapping(self, *args, **kwargs) -> MappingNode:
         if self._as_mapping is None:
             self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
         return self._as_mapping
 
-    def as_dict(self, sep=':', multiline=None):
+    def as_dict(self, sep=':', multiline=None) -> Dict[Union[str, N], N]:
         data = ordered_dict()
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
 
@@ -395,7 +395,7 @@ class List(CompoundNode):
 
         return data
 
-    def _as_multiline_dict(self, node_fn, _add_kv):
+    def _as_multiline_dict(self, node_fn: Callable, _add_kv: Callable):
         ctrl_pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
         last_key = None
         last_val = None
@@ -424,7 +424,7 @@ class List(CompoundNode):
         if last_key:
             _add_kv(node_fn(last_key[1]), None)
 
-    def _as_inline_dict(self, node_fn, _add_kv, sep):
+    def _as_inline_dict(self, node_fn: Callable, _add_kv: Callable, sep: str):
         ctrl_pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
         style_pat_match = re.compile(r'^(\'{2,5}[^' + sep + r']+)' + sep + r'\s*(\'{2,5})(.*)', re.DOTALL).match
         reformatter = '{{}}{{}}{} {{}}'.format(sep)
