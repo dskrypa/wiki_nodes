@@ -13,7 +13,7 @@ import sys
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from copy import copy
-from typing import Iterable, Optional, Union, TypeVar, Type, Generator, List as ListType, Dict, Callable
+from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable
 
 from wikitextparser import WikiText
 
@@ -74,36 +74,36 @@ class BasicNode(Node):
 
 class CompoundNode(Node):
     @cached_property
-    def children(self):
+    def children(self) -> ListType[N]:
         return []
 
     def __repr__(self):
         return f'<{self.__class__.__name__}{self.children!r}>'
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> N:
         return self.children[item]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value: N):
         self.children[key] = value
 
     def __delitem__(self, key):
         del self.children[key]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[N]:
         return iter(self.children)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.children)
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self.children)
 
     @property
-    def only_basic(self):
+    def only_basic(self) -> bool:
         """True if all children are basic; not cached because children may change"""
         return type(self) is CompoundNode and all(c.is_basic for c in self.children)
 
-    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Generator[N, None, None]:
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
         """
         Find all descendent nodes of the given type, optionally with additional matching criteria.
 
@@ -130,7 +130,7 @@ class CompoundNode(Node):
         """
         return next(self.find_all(*args, **kwargs), None)
 
-    def pformat(self, indentation=0):
+    def pformat(self, indentation=0) -> str:
         indent = (' ' * indentation)
         inside = indent + (' ' * 4)
         child_lines = ('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
@@ -254,6 +254,10 @@ class Link(BasicNode):
             return f'<{self.__class__.__name__}:{self.link.string!r}@{site}>'
         return f'<{self.__class__.__name__}:{self.link.string!r}>'
 
+    @cached_property
+    def to_file(self) -> bool:
+        return self.title.lower().startswith(('image:', 'file:'))
+
 
 class ListEntry(CompoundNode):
     def __init__(self, raw, root=None, preserve_comments=False, _value=None):
@@ -283,26 +287,26 @@ class ListEntry(CompoundNode):
         return bool(self.value) or bool(self.children)
 
     @cached_property
-    def sub_list(self):
+    def sub_list(self) -> Optional['List']:
         if not self._children:
             return None
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
         return List(content, self.root, self.preserve_comments)
 
     @property
-    def children(self):
+    def children(self) -> ListType['ListEntry']:
         sub_list = self.sub_list
         if not sub_list:
             return []
         return sub_list.children
 
-    def extend(self, list_node):
+    def extend(self, list_node: 'List'):
         if self._children is None:
             self.__dict__['sub_list'] = list_node
         else:
             self.sub_list.extend(list_node)
 
-    def _extend(self, text, convert=True):
+    def _extend(self, text: str, convert=True):
         self.clear_cached_properties()
         text = f'** {text}'
         if self._children is None:
@@ -317,7 +321,7 @@ class ListEntry(CompoundNode):
             self.raw = WikiText(f'{self.raw.string}\n{text}')
             self._children = f'{self._children}\n{text}'
 
-    def pformat(self, indentation=0):
+    def pformat(self, indentation=0) -> str:
         indent = (' ' * indentation)
         inside = indent + (' ' * 4)
         if self.value is not None:
@@ -357,7 +361,7 @@ class List(CompoundNode):
     def extend(self, list_node: 'List'):
         self.children.extend(list_node.children)
 
-    def iter_flat(self) -> Generator[N, None, None]:
+    def iter_flat(self) -> Iterator[N]:
         for child in self.children:
             val = child.value
             if val:

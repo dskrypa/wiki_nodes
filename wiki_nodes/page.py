@@ -12,7 +12,7 @@ Notes:\n
 import logging
 
 from .compat import cached_property
-from .nodes import Root, Template, String, CompoundNode
+from .nodes import Root, Template, String, CompoundNode, Tag
 
 __all__ = ['WikiPage']
 log = logging.getLogger(__name__)
@@ -72,6 +72,8 @@ class WikiPage(Root):
             for node in self.sections.content:
                 if isinstance(node, String):
                     return node
+                elif isinstance(node, Tag) and node.name == 'div' and type(node.value) is CompoundNode:
+                    return node.value
                 elif type(node) is CompoundNode and node.only_basic:
                     return node
         except Exception as e:
