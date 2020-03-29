@@ -481,10 +481,10 @@ class MediaWikiClient(RequestsClient):
 
     @classmethod
     def get_multi_site_pages(
-            cls, site_title_map: Mapping[str, Iterable[str]], preserve_comments=False
+            cls, site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]], preserve_comments=False
     ) -> Tuple[Dict[str, Dict[str, WikiPage]], Dict[str, Exception]]:
         """
-        :param dict site_title_map: Mapping of {site|MediaWikiCLient: list(titles)}
+        :param dict site_title_map: Mapping of {site|MediaWikiClient: list(titles)}
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
         :return tuple: Tuple containing mappings of {site: results}, {site: errors}
         """
