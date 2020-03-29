@@ -11,9 +11,10 @@ import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from distutils.version import LooseVersion
+from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping
 from urllib.parse import urlparse, unquote
 
-from requests import RequestException
+from requests import RequestException, Response
 
 from db_cache import TTLDBCache, DBCache
 from requests_client import RequestsClient
@@ -26,29 +27,29 @@ __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
 qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
-URL_REGEX = re.compile('^[a-zA-Z]+://')
+URL_MATCH = re.compile('^[a-zA-Z]+://').match
 
 
 class MediaWikiClient(RequestsClient):
     _siteinfo_cache = None
-    _instances = {}
+    _instances = {}             # type: Dict[str, MediaWikiClient]
 
-    def __new__(cls, host_or_url, *args, **kwargs):
-        host = urlparse(host_or_url).hostname if URL_REGEX.match(host_or_url) else host_or_url
+    def __new__(cls, host_or_url: str, *args, **kwargs):
+        host = urlparse(host_or_url).hostname if URL_MATCH(host_or_url) else host_or_url
         try:
             return cls._instances[host]
         except KeyError:
             cls._instances[host] = instance = super().__new__(cls)
             return instance
 
-    def __init__(self, host_or_url, *args, ttl=3600 * 6, **kwargs):
+    def __init__(self, host_or_url: str, *args, ttl=3600 * 6, **kwargs):
         if not getattr(self, '_MediaWikiClient__initialized', False):
             headers = kwargs.get('headers') or {}
             headers.setdefault('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
             headers.setdefault('Accept-Encoding', 'gzip, deflate')
             headers.setdefault('Accept-Language', 'en-US,en;q=0.5')
             # headers.setdefault('Upgrade-Insecure-Requests', '1')
-            if not URL_REGEX.match(host_or_url):
+            if not URL_MATCH(host_or_url):
                 kwargs.setdefault('scheme', 'https')
             super().__init__(host_or_url, *args, **kwargs)
             if self.host in ('en.wikipedia.org', 'www.generasia.com'):
@@ -61,7 +62,7 @@ class MediaWikiClient(RequestsClient):
             self.__initialized = True
 
     @cached_property
-    def siteinfo(self):
+    def siteinfo(self) -> Dict[str, Any]:
         """Site metadata, including MediaWiki version.  Cached to disk with TTL = 24 hours."""
         try:
             return self._siteinfo_cache[self.host]
@@ -72,7 +73,7 @@ class MediaWikiClient(RequestsClient):
             return siteinfo
 
     @cached_property
-    def mw_version(self):
+    def mw_version(self) -> LooseVersion:
         """
         The version of MediaWiki that this site is running.  Used to adjust query parameters due to API changes between
         versions.
@@ -80,11 +81,11 @@ class MediaWikiClient(RequestsClient):
         return LooseVersion(self.siteinfo['general']['generator'].split()[-1])
 
     @cached_property
-    def interwiki_map(self):
+    def interwiki_map(self) -> Dict[str, str]:
         rows = self.siteinfo['interwikimap']
         return {row['prefix']: row['url'] for row in rows}
 
-    def interwiki_client(self, iw_map_key):
+    def interwiki_client(self, iw_map_key: str) -> Optional['MediaWikiClient']:
         try:
             url = self.interwiki_map[iw_map_key]
         except KeyError:
@@ -93,13 +94,13 @@ class MediaWikiClient(RequestsClient):
             return MediaWikiClient(url, nopath=True)
 
     @cached_property
-    def article_path_prefix(self):
+    def article_path_prefix(self) -> str:
         return self.siteinfo['general']['articlepath'].replace('$1', '')
 
-    def article_url_to_title(self, url):
+    def article_url_to_title(self, url: str) -> str:
         return urlparse(unquote(url)).path.replace(self.article_path_prefix, '', 1)
 
-    def _update_params(self, params):
+    def _update_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Include useful default parameters, and handle conversion of lists/tuples/sets to pipe-delimited strings."""
         params['format'] = 'json'
         if self.mw_version >= LooseVersion('1.25'):     # https://www.mediawiki.org/wiki/API:JSON_version_2
@@ -108,12 +109,13 @@ class MediaWikiClient(RequestsClient):
         for key, val in params.items():
             # TODO: Figure out U+001F usage when a value containing | is found
             # Docs: If | in value, use U+001F as the separator & prefix value with it, e.g. param=%1Fvalue1%1Fvalue2
-            if isinstance(val, (list, tuple, set)):
+            if isinstance(val, Collection) and not isinstance(val, str):
+            # if isinstance(val, (list, tuple, set)):
                 params[key] = '|'.join(map(str, val))
                 # params[key] = ''.join(map('\u001f{}'.format, val))    # doesn't work for vals without |
         return params
 
-    def query(self, **params):
+    def query(self, **params) -> Dict[str, Dict[str, Any]]:
         """
         Submit, then parse and transform a `query request <https://www.mediawiki.org/wiki/API:Query>`_
 
@@ -155,7 +157,7 @@ class MediaWikiClient(RequestsClient):
         else:
             return self._query(**params)
 
-    def _query(self, *, no_parse=False, **params):
+    def _query(self, *, no_parse=False, **params) -> Dict[str, Dict[str, Any]]:
         params = self._update_params(params)
         resp = self.get('api.php', params=params)
         if no_parse:
@@ -199,7 +201,7 @@ class MediaWikiClient(RequestsClient):
 
         return parsed
 
-    def _parse_query(self, resp):
+    def _parse_query(self, resp: Response) -> Tuple[Dict[str, Dict[str, Any]], Any]:
         response = resp.json()
         if 'query' not in response and 'error' in response:
             raise WikiResponseError(json.dumps(response['error']))
@@ -222,7 +224,7 @@ class MediaWikiClient(RequestsClient):
         more = response.get('query-continue')
         return parsed, more
 
-    def _parse_query_pages(self, results):
+    def _parse_query_pages(self, results: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         pages = results['pages']
         redirects = results.get('redirects', [])
         redirects = {r['to']: r['from'] for r in (redirects.values() if isinstance(redirects, dict) else redirects)}
@@ -258,7 +260,7 @@ class MediaWikiClient(RequestsClient):
                     content[key] = val
         return parsed
 
-    def parse(self, **params):
+    def parse(self, **params) -> Dict[str, Any]:
         """
         Submit, then parse and transform a `parse request <https://www.mediawiki.org/wiki/API:Parse>`_
 
@@ -296,7 +298,7 @@ class MediaWikiClient(RequestsClient):
                 content[key] = val
         return content
 
-    def query_content(self, titles):
+    def query_content(self, titles: Union[str, Iterable[str]]) -> Dict[str, Any]:
         """Get the contents of the latest revision of one or more pages as wikitext."""
         pages = {}
         resp = self.query(titles=titles, rvprop='content', prop='revisions')
@@ -305,12 +307,12 @@ class MediaWikiClient(RequestsClient):
             pages[title] = revisions[0] if revisions else None
         return pages
 
-    def query_categories(self, titles):
+    def query_categories(self, titles: Union[str, Iterable[str]]) -> Dict[str, Any]:
         """Get the categories of one or more pages."""
         resp = self.query(titles=titles, prop='categories')
         return {title: data.get('categories', []) for title, data in resp.items()}
 
-    def query_pages(self, titles, search=False):
+    def query_pages(self, titles: Union[str, Iterable[str]], search=False) -> Dict[str, Dict[str, Any]]:
         """
         Get the full page content and the following additional data about each of the provided page titles:\n
           - categories
@@ -395,7 +397,7 @@ class MediaWikiClient(RequestsClient):
 
         return pages
 
-    def query_page(self, title, search=False):
+    def query_page(self, title: str, search=False) -> Dict[str, Any]:
         results = self.query_pages(title, search=search)
         if not results:
             raise PageMissingError(title, self.host)
@@ -404,11 +406,13 @@ class MediaWikiClient(RequestsClient):
         except KeyError:
             raise PageMissingError(title, self.host, f'but results were found for: {", ".join(sorted(results))}')
 
-    def parse_page(self, page):
+    def parse_page(self, page: str) -> Dict[str, Any]:
         resp = self.parse(page=page, prop=['wikitext', 'text', 'categories', 'links', 'iwlinks', 'displaytitle'])
         return resp
 
-    def search(self, query, search_type='nearmatch', limit=10, offset=None):
+    def search(
+            self, query: str, search_type: str = 'nearmatch', limit: int = 10, offset: Optional[int] = None
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Search for pages that match the given query.
 
@@ -430,7 +434,7 @@ class MediaWikiClient(RequestsClient):
             params['sroffset'] = offset
         return self.query(list='search', srsearch=query, srlimit=limit, **params)
 
-    def get_pages(self, titles, preserve_comments=False):
+    def get_pages(self, titles: Union[str, Iterable[str]], preserve_comments=False) -> Dict[str, WikiPage]:
         raw_pages = self.query_pages(titles)
         pages = {
             result_title: WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
@@ -438,17 +442,19 @@ class MediaWikiClient(RequestsClient):
         }   # The result_title may have redirected to the actual title
         return pages
 
-    def get_page(self, title, preserve_comments=False, search=False):
+    def get_page(self, title: str, preserve_comments=False, search=False) -> WikiPage:
         page = self.query_page(title, search=search)
         return WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
 
     @classmethod
-    def page_for_article(cls, article_url, preserve_comments=False):
+    def page_for_article(cls, article_url: str, preserve_comments=False) -> WikiPage:
         client = cls(article_url, nopath=True)
         return client.get_page(client.article_url_to_title(article_url), preserve_comments)
 
     @classmethod
-    def get_multi_site_page(cls, title, sites, preserve_comments=False, search=False):
+    def get_multi_site_page(
+            cls, title: str, sites: Iterable[str], preserve_comments=False, search=False
+    ) -> Tuple[Dict[str, WikiPage], Dict[str, Exception]]:
         """
         :param str title: A page title
         :param iterable sites: A list or other iterable that yields site host strings
@@ -474,7 +480,9 @@ class MediaWikiClient(RequestsClient):
             return results, errors
 
     @classmethod
-    def get_multi_site_pages(cls, site_title_map, preserve_comments=False):
+    def get_multi_site_pages(
+            cls, site_title_map: Mapping[str, Iterable[str]], preserve_comments=False
+    ) -> Tuple[Dict[str, Dict[str, WikiPage]], Dict[str, Exception]]:
         """
         :param dict site_title_map: Mapping of {site|MediaWikiCLient: list(titles)}
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
@@ -502,7 +510,7 @@ class MediaWikiClient(RequestsClient):
             return results, errors
 
 
-def normalize(title):
+def normalize(title: str) -> str:
     return title.upper().replace('_', ' ').strip()
 
 
