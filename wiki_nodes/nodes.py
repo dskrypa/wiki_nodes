@@ -156,7 +156,7 @@ class MappingNode(CompoundNode, MutableMapping):
             self.children.update(content)
 
     @cached_property
-    def children(self):
+    def children(self) -> Dict[Union[str, N], Optional[N]]:
         return ordered_dict()
 
     def pformat(self, indentation=0):
@@ -377,7 +377,7 @@ class List(CompoundNode):
             self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
         return self._as_mapping
 
-    def as_dict(self, sep=':', multiline=None) -> Dict[Union[str, N], N]:
+    def as_dict(self, sep=':', multiline=None) -> Dict[Union[str, N], Optional[N]]:
         data = ordered_dict()
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
 
@@ -599,15 +599,15 @@ class Root(Node):
 
 
 class Section(Node):
-    def __init__(self, raw, root, preserve_comments=False):
+    def __init__(self, raw, root, preserve_comments=False, _index=0):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
-                self.raw = self.raw.get_sections()[0]
+                self.raw = self.raw.get_sections()[_index]  # _index is needed for re-constructed subsections
             except IndexError as e:
                 raise ValueError('Invalid wiki section value') from e
-        self.title = strip_style(self.raw.title)
-        self.level = self.raw.level
+        self.title = strip_style(self.raw.title)                        # type: str
+        self.level = self.raw.level                                     # type: int
         self.children = ordered_dict()  # populated by Root.sections
 
     def __repr__(self):
@@ -616,8 +616,13 @@ class Section(Node):
     def __getitem__(self, item):
         return self.children[item]
 
-    def __iter__(self):
-        yield from self.children.values()
+    def __iter__(self) -> Iterator['Section']:
+        return iter(self.children.values())
+
+    def _add_subsection(self, title: str, nodes: Iterable[Node], delim: str = ' '):
+        level = self.level + 1
+        raw = f'{"=" * level}{title}{"=" * level}\n{delim.join(n.raw.string for n in nodes)}'
+        self.children[title] = self.__class__(raw, self.root, self.preserve_comments, 1)
 
     @property
     def depth(self):
@@ -668,7 +673,10 @@ class Section(Node):
             return node
         return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)    # chop off the header
 
-    def processed(self, convert_maps=True, fix_dl_last_none=True, fix_nested_dl_ul_ol=True, merge_maps=True):
+    def processed(
+            self, convert_maps=True, fix_dl_last_none=True, fix_nested_dl_ul_ol=True, merge_maps=True,
+            fix_dl_key_as_header=True
+    ):
         """
         The content of this section, processed to work around various issues.
 
@@ -678,6 +686,8 @@ class Section(Node):
         :param bool fix_nested_dl_ul_ol: When a dl contains a value that is a ul, and that ul contains a nested ol, fix
           the lists so that they are properly nested
         :param bool merge_maps: Merge consecutive MappingNode objects
+        :param bool fix_dl_key_as_header: Some pages have sub-sections with ``;`` used to indicate a section header
+          instead of surrounding the header with ``=``
         :return: CompoundNode
         """
         content = copy(self.content)
@@ -686,8 +696,7 @@ class Section(Node):
             children = []
             did_convert = False
             for child in content:
-
-                if isinstance(child, List):
+                if isinstance(child, List) and len(child) > 1:
                     try:
                         as_map = child.as_mapping()
                     except Exception:
@@ -721,11 +730,15 @@ class Section(Node):
                         children.append(child)
                 elif isinstance(child, MappingNode):
                     children.append(child)
-                    key, val = list(child.items())[-1]
-                    if val is None:
-                        last_map, last_key = child, key
-                    else:
+                    try:
+                        key, val = list(child.items())[-1]
+                    except IndexError:
                         last_map, last_key = None, None
+                    else:
+                        if val is None:
+                            last_map, last_key = child, key
+                        else:
+                            last_map, last_key = None, None
                 else:
                     children.append(child)
                     last_map, last_key = None, None
@@ -741,12 +754,16 @@ class Section(Node):
             for child in content:
                 if isinstance(child, MappingNode):
                     children.append(child)
-                    key, val = list(child.items())[-1]
-                    if isinstance(val, List) and val.start_char == '*':
-                        last_list = val
-                        last_entry = val[-1]
-                    else:
+                    try:
+                        key, val = list(child.items())[-1]
+                    except IndexError:
                         last_list, last_entry = None, None
+                    else:
+                        if isinstance(val, List) and val.start_char == '*':
+                            last_list = val
+                            last_entry = val[-1]
+                        else:
+                            last_list, last_entry = None, None
                 elif isinstance(child, List):
                     if last_list and child.start_char == '#':
                         did_fix = True
@@ -785,6 +802,32 @@ class Section(Node):
                     last_map = None
 
             if did_merge:
+                content.children.clear()
+                content.children.extend(children)
+
+        if fix_dl_key_as_header:
+            children = []
+            did_fix = False
+            title = None            # type: Optional[str]
+            subsection_nodes = []
+            for child in content:
+                if isinstance(child, List) and len(child) == 1 and child.raw.string.startswith(';'):
+                    if title:
+                        did_fix = True
+                        self._add_subsection(title, subsection_nodes)
+                        subsection_nodes = []
+
+                    title = child.children[0].value.value
+                elif title:
+                    subsection_nodes.append(child)
+                else:
+                    children.append(child)
+
+            if title:
+                did_fix = True
+                self._add_subsection(title, subsection_nodes)
+
+            if did_fix:
                 content.children.clear()
                 content.children.extend(children)
 
