@@ -10,6 +10,9 @@ Notes:\n
 """
 
 import logging
+from typing import Optional, Union, Iterable
+
+from wikitextparser import WikiText
 
 from .compat import cached_property
 from .nodes import Root, Template, String, CompoundNode, Tag
@@ -21,12 +24,15 @@ log = logging.getLogger(__name__)
 class WikiPage(Root):
     _ignore_category_prefixes = ()
 
-    def __init__(self, title, site, content, categories, preserve_comments=False):
+    def __init__(
+            self, title: str, site: Optional[str], content: Union[str, WikiText], categories: Iterable[str],
+            preserve_comments=False
+    ):
         """
         :param str title: The page title
         :param str site: The site of origin for this page
         :param str|WikiText content: The page content
-        :param list|iterable categories: This page's categories
+        :param iterable categories: This page's categories
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
         """
         super().__init__(content, site, preserve_comments=preserve_comments)

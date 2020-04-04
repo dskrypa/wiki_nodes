@@ -15,7 +15,10 @@ from collections.abc import MutableMapping
 from copy import copy
 from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable
 
-from wikitextparser import WikiText
+from wikitextparser import (
+    WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
+    WikiList as _List
+)
 
 from .compat import cached_property
 from .utils import strip_style, ClearableCachedPropertyMixin
@@ -150,7 +153,7 @@ class CompoundNode(Node):
 
 
 class MappingNode(CompoundNode, MutableMapping):
-    def __init__(self, raw, root=None, preserve_comments=False, content=None):
+    def __init__(self, raw: Union[str, WikiText], root: Optional['Root'] = None, preserve_comments=False, content=None):
         super().__init__(raw, root, preserve_comments)
         if content:
             self.children.update(content)
@@ -171,7 +174,7 @@ class MappingNode(CompoundNode, MutableMapping):
 
 
 class Tag(BasicNode):
-    def __init__(self, raw, root=None, preserve_comments=False):
+    def __init__(self, raw: Union[str, WikiText, _Tag], root: Optional['Root'] = None, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -199,7 +202,7 @@ class Tag(BasicNode):
 
 
 class String(BasicNode):
-    def __init__(self, raw, root=None):
+    def __init__(self, raw: Union[str, WikiText], root: Optional['Root'] = None):
         super().__init__(raw, root)
         self.value = strip_style(self.raw.string)
 
@@ -221,7 +224,7 @@ class String(BasicNode):
 
 
 class Link(BasicNode):
-    def __init__(self, raw, root=None):
+    def __init__(self, raw: Union[str, WikiText, _Link], root: Optional['Root'] = None):
         super().__init__(raw, root)
         self.link = self.raw.wikilinks[0]
         self.title = self.link.title    # target = title + fragment
@@ -263,7 +266,7 @@ class Link(BasicNode):
 
 
 class ListEntry(CompoundNode):
-    def __init__(self, raw, root=None, preserve_comments=False, _value=None):
+    def __init__(self, raw: Union[str, WikiText], root: Optional['Root'] = None, preserve_comments=False, _value=None):
         super().__init__(raw, root, preserve_comments)
         if _value:
             self.value = _value
@@ -347,7 +350,7 @@ class ListEntry(CompoundNode):
 
 
 class List(CompoundNode):
-    def __init__(self, raw, root=None, preserve_comments=False):
+    def __init__(self, raw: Union[str, WikiText, _List], root: Optional['Root'] = None, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -453,7 +456,7 @@ class List(CompoundNode):
 class Table(CompoundNode):
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
 
-    def __init__(self, raw, root=None, preserve_comments=False):
+    def __init__(self, raw: Union[str, WikiText, _Table], root: Optional['Root'] = None, preserve_comments=False):
         raw = self._rowspan_with_template.sub(r'\1 | {', raw.string if isinstance(raw, WikiText) else raw)
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
@@ -526,7 +529,7 @@ class Template(BasicNode):
     _defaults = {'n/a': 'N/A'}
     _basic_names = {'n/a', 'small'}
 
-    def __init__(self, raw, root=None, preserve_comments=False):
+    def __init__(self, raw: Union[str, WikiText, _Template], root: Optional['Root'] = None, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -573,13 +576,13 @@ class Template(BasicNode):
 
 class Root(Node):
     # Children = sections
-    def __init__(self, page_text, site=None, preserve_comments=False):
+    def __init__(self, page_text: Union[str, WikiText], site: Optional[str] = None, preserve_comments=False):
         if isinstance(page_text, str):
             page_text = WikiText(page_text.replace('\xa0', ' '))
         super().__init__(page_text, None, preserve_comments)
-        self.site = site
+        self.site = site                                        # type: Optional[str]
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: str) -> 'Section':
         return self.sections[item]
 
     @cached_property
@@ -599,7 +602,7 @@ class Root(Node):
 
 
 class Section(Node):
-    def __init__(self, raw, root, preserve_comments=False, _index=0):
+    def __init__(self, raw: Union[str, WikiText, _Section], root: Optional['Root'], preserve_comments=False, _index=0):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -613,7 +616,7 @@ class Section(Node):
     def __repr__(self):
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: str) -> 'Section':
         return self.children[item]
 
     def __iter__(self) -> Iterator['Section']:
@@ -625,7 +628,7 @@ class Section(Node):
         self.children[title] = self.__class__(raw, self.root, self.preserve_comments, 1)
 
     @property
-    def depth(self):
+    def depth(self) -> int:
         if self.children:
             return max(c.depth for c in self.children.values()) + 1
         return 0
@@ -999,7 +1002,7 @@ def _process_node_parts(wiki_text, node, before, after, drop, root, preserve_com
     return compound
 
 
-def extract_links(raw, root=None):
+def extract_links(raw, root: Optional[Root] = None):
     try:
         end_pat = extract_links._end_pat
         start_pat = extract_links._start_pat
