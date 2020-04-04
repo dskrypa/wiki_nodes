@@ -695,8 +695,9 @@ class Section(Node):
         if convert_maps:
             children = []
             did_convert = False
-            for child in content:
-                if isinstance(child, List) and len(child) > 1:
+            last = len(content) - 1
+            for i, child in enumerate(content):
+                if isinstance(child, List) and (len(child) > 1 or (i < last and isinstance(content[i + 1], List))):
                     try:
                         as_map = child.as_mapping()
                     except Exception:
