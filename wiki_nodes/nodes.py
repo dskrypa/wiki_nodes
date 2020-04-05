@@ -694,6 +694,8 @@ class Section(Node):
         :return: CompoundNode
         """
         content = copy(self.content)
+        if not isinstance(content, CompoundNode):
+            return content
 
         if convert_maps:
             children = []
