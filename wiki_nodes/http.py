@@ -57,6 +57,7 @@ class MediaWikiClient(RequestsClient):
             if MediaWikiClient._siteinfo_cache is None:
                 MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
             self._page_cache = TTLDBCache(f'{self.host}_pages', cache_subdir='wiki', ttl=ttl)
+            self._search_cache = TTLDBCache(f'{self.host}_searches', cache_subdir='wiki', ttl=ttl)
             # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
             self._norm_title_cache = DBCache(f'{self.host}_normalized_titles', cache_subdir='wiki', time_fmt='%Y')
             self.__initialized = True
@@ -216,6 +217,8 @@ class MediaWikiClient(RequestsClient):
             parsed = self._parse_query_pages(results)
         elif 'allcategories' in results:
             parsed = {row['category']: row['size'] for row in results['allcategories']}
+        elif 'search' in results:
+            parsed = {row['title']: row for row in results['search']}
         else:
             query_keys = ', '.join(results)
             log.debug(f'Query results from {resp.url} did not contain any handled keys; found: {query_keys}')
@@ -425,14 +428,19 @@ class MediaWikiClient(RequestsClient):
         :param int offset: The number of results to skip when requesting additional results for the given query
         :return dict: The parsed response
         """
-        params = {
-            # 'srprop': ['timestamp', 'snippet', 'redirecttitle', 'categorysnippet']
-        }
-        if search_type is not None:
-            params['srwhat'] = search_type
-        if offset is not None:
-            params['sroffset'] = offset
-        return self.query(list='search', srsearch=query, srlimit=limit, **params)
+        lc_query = query.lower()
+        try:
+            results = self._search_cache[lc_query]
+        except KeyError:
+            params = {
+                # 'srprop': ['timestamp', 'snippet', 'redirecttitle', 'categorysnippet']
+            }
+            if search_type is not None:
+                params['srwhat'] = search_type
+            if offset is not None:
+                params['sroffset'] = offset
+            self._search_cache[lc_query] = results = self.query(list='search', srsearch=query, srlimit=limit, **params)
+        return results
 
     def get_pages(self, titles: Union[str, Iterable[str]], preserve_comments=False) -> Dict[str, WikiPage]:
         raw_pages = self.query_pages(titles)
