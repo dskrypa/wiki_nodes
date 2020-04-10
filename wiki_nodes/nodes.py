@@ -585,6 +585,11 @@ class Root(Node):
     def __getitem__(self, item: str) -> 'Section':
         return self.sections[item]
 
+    def __iter__(self) -> Iterator['Section']:
+        root = self.sections
+        yield root
+        yield from root
+
     @cached_property
     def sections(self) -> 'Section':
         sections = iter(self.raw.sections)
