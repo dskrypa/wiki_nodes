@@ -213,7 +213,10 @@ class MediaWikiClient(RequestsClient):
             log.debug(f'Response from {resp.url} contained no \'query\' key; found: {", ".join(response)}')
             return {}, None
         except TypeError:
-            log.debug(f'Response from {resp.url} was not a dict; found: {response}')
+            if not response:
+                log.debug(f'Response from {resp.url} was empty.')
+            else:
+                log.debug(f'Response from {resp.url} was not a dict; found: {response}')
             return {}, None
 
         if 'pages' in results:
