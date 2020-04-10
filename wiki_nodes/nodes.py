@@ -610,8 +610,8 @@ class Section(Node):
     def __init__(self, raw: Union[str, WikiText, _Section], root: Optional['Root'], preserve_comments=False, _index=0):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
-            try:
-                self.raw = self.raw.get_sections()[_index]  # _index is needed for re-constructed subsections
+            try:                                                    # _index is needed for re-constructed subsections
+                self.raw = self.raw.get_sections()[_index]          # type: _Section
             except IndexError as e:
                 raise ValueError('Invalid wiki section value') from e
         self.title = strip_style(self.raw.title)                        # type: str
@@ -626,6 +626,10 @@ class Section(Node):
 
     def __iter__(self) -> Iterator['Section']:
         return iter(self.children.values())
+
+    def _formatted_title(self):
+        bars = "=" * self.level
+        return f'{bars}{self.raw.title}{bars}'
 
     def _add_subsection(self, title: str, nodes: Iterable[Node], delim: str = ' '):
         level = self.level + 1
@@ -679,7 +683,11 @@ class Section(Node):
                     node = CompoundNode.from_nodes(non_basic, self.root, self.preserve_comments)
                     node.children.append(CompoundNode.from_nodes(remainder, self.root, self.preserve_comments, ' '))
             return node
-        return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)    # chop off the header
+
+        content = self.raw.contents.strip()
+        if self.children:
+            content = content.partition(next(iter(self))._formatted_title())[0].strip()
+        return as_node(content, self.root, self.preserve_comments)    # chop off the header
 
     def processed(
             self, convert_maps=True, fix_dl_last_none=True, fix_nested_dl_ul_ol=True, merge_maps=True,
