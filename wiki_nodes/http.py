@@ -360,13 +360,13 @@ class MediaWikiClient(RequestsClient):
                     page = self._page_cache[norm_title]
                 except KeyError:
                     need.add(title)
-                    qlog.debug(f'No content was found in page cache for title={norm_title!r}')
+                    qlog.debug(f'No content was found in {self.host} page cache for title={norm_title!r}')
                 else:
                     if page:
                         pages[title] = page
-                        qlog.debug(f'Found content in page cache for title={norm_title!r}')
+                        qlog.debug(f'Found content in {self.host} page cache for title={norm_title!r}')
                     else:
-                        qlog.debug(f'Found empty content in page cache for title={norm_title!r}')
+                        qlog.debug(f'Found empty content in {self.host} page cache for title={norm_title!r}')
 
         if need:
             norm_fmt = 'Storing title normalization for {!r} => {!r} [{}]'
@@ -377,7 +377,7 @@ class MediaWikiClient(RequestsClient):
             for title, data in resp.items():
                 qlog.debug(f'Processing page with title={title!r}, data: {", ".join(sorted(data))}')
                 if data.get('pageid') is None:      # The page does not exist
-                    qlog.debug(f'No page was found for title={title!r} - caching null page')
+                    qlog.debug(f'No page was found from {self.host} for title={title!r} - caching null page')
                     self._page_cache[title] = None
                 else:
                     revisions = data.get('revisions')
@@ -399,13 +399,14 @@ class MediaWikiClient(RequestsClient):
                                 self._norm_title_cache[norm_title] = title
                                 pages[norm_to_orig.pop(norm_title)] = entry
                             else:
-                                log.debug(f'Received page for title={title!r} that did not match any requested title')
+                                fmt = 'Received page from {} for title={!r} that did not match any requested title'
+                                log.debug(fmt.format(self.host, title))
                         else:
                             # Exact title match
                             pages[norm_to_orig.pop(norm_title)] = entry
 
             for title in norm_to_orig.values():
-                qlog.debug(f'No content was returned for title={title!r} - caching null page')
+                qlog.debug(f'No content was returned from {self.host} for title={title!r} - caching null page')
                 self._page_cache[title] = None
 
         return pages
