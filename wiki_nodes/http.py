@@ -321,7 +321,7 @@ class MediaWikiClient(RequestsClient):
         resp = self.query(titles=titles, prop='categories')
         return {title: data.get('categories', []) for title, data in resp.items()}
 
-    def query_pages(self, titles: Union[str, Iterable[str]], search=False) -> Dict[str, Dict[str, Any]]:
+    def query_pages(self, titles: Union[str, Iterable[str]], search=False, no_cache=False) -> Dict[str, Dict[str, Any]]:
         """
         Get the full page content and the following additional data about each of the provided page titles:\n
           - categories
@@ -338,6 +338,7 @@ class MediaWikiClient(RequestsClient):
         :param str|list|set|tuple titles: One or more page titles (as it appears in the URL for the page)
         :param bool search: Whether the provided titles should also be searched for, in case there is not an exact
           match.  This does not seem to work when multiple titles are provided as the search term.
+        :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
         :return dict: Mapping of {title: dict(page data)}
         """
         if isinstance(titles, str):
@@ -352,17 +353,20 @@ class MediaWikiClient(RequestsClient):
             else:
                 qlog.debug(f'Normalized title {title!r} to {norm_title!r}')
 
-            try:
-                page = self._page_cache[norm_title]
-            except KeyError:
+            if no_cache:
                 need.add(title)
-                qlog.debug(f'No content was found in page cache for title={norm_title!r}')
             else:
-                if page:
-                    pages[title] = page
-                    qlog.debug(f'Found content in page cache for title={norm_title!r}')
+                try:
+                    page = self._page_cache[norm_title]
+                except KeyError:
+                    need.add(title)
+                    qlog.debug(f'No content was found in page cache for title={norm_title!r}')
                 else:
-                    qlog.debug(f'Found empty content in page cache for title={norm_title!r}')
+                    if page:
+                        pages[title] = page
+                        qlog.debug(f'Found content in page cache for title={norm_title!r}')
+                    else:
+                        qlog.debug(f'Found empty content in page cache for title={norm_title!r}')
 
         if need:
             norm_fmt = 'Storing title normalization for {!r} => {!r} [{}]'
@@ -406,8 +410,8 @@ class MediaWikiClient(RequestsClient):
 
         return pages
 
-    def query_page(self, title: str, search=False) -> Dict[str, Any]:
-        results = self.query_pages(title, search=search)
+    def query_page(self, title: str, search=False, no_cache=False) -> Dict[str, Any]:
+        results = self.query_pages(title, search=search, no_cache=no_cache)
         if not results:
             raise PageMissingError(title, self.host)
         try:
@@ -448,38 +452,42 @@ class MediaWikiClient(RequestsClient):
             self._search_cache[lc_query] = results = self.query(list='search', srsearch=query, srlimit=limit, **params)
         return results
 
-    def get_pages(self, titles: Union[str, Iterable[str]], preserve_comments=False, search=False) -> Dict[str, WikiPage]:
-        raw_pages = self.query_pages(titles, search=search)
+    def get_pages(
+            self, titles: Union[str, Iterable[str]], preserve_comments=False, search=False, no_cache=False
+    ) -> Dict[str, WikiPage]:
+        raw_pages = self.query_pages(titles, search=search, no_cache=no_cache)
         pages = {
             result_title: WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
             for result_title, page in raw_pages.items()
         }   # The result_title may have redirected to the actual title
         return pages
 
-    def get_page(self, title: str, preserve_comments=False, search=False) -> WikiPage:
-        page = self.query_page(title, search=search)
+    def get_page(self, title: str, preserve_comments=False, search=False, no_cache=False) -> WikiPage:
+        page = self.query_page(title, search=search, no_cache=no_cache)
         return WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
 
     @classmethod
-    def page_for_article(cls, article_url: str, preserve_comments=False) -> WikiPage:
+    def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> WikiPage:
         client = cls(article_url, nopath=True)
-        return client.get_page(client.article_url_to_title(article_url), preserve_comments)
+        return client.get_page(client.article_url_to_title(article_url), preserve_comments, no_cache=no_cache)
 
     @classmethod
     def get_multi_site_page(
-            cls, title: str, sites: Iterable[str], preserve_comments=False, search=False
+            cls, title: str, sites: Iterable[str], preserve_comments=False, search=False, no_cache=False
     ) -> Tuple[Dict[str, WikiPage], Dict[str, Exception]]:
         """
         :param str title: A page title
         :param iterable sites: A list or other iterable that yields site host strings
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
         :param bool search: Whether the provided title should also be searched for, in case there is not an exact match.
+        :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
         :return tuple: Tuple containing mappings of {site: WikiPage}, {site: errors}
         """
         clients = [cls(site, nopath=True) for site in sites]
         with ThreadPoolExecutor(max_workers=max(1, len(clients))) as executor:
             _futures = {
-                executor.submit(client.get_page, title, preserve_comments, search): client.host for client in clients
+                executor.submit(client.get_page, title, preserve_comments, search, no_cache): client.host
+                for client in clients
             }
             results = {}
             errors = {}
@@ -496,11 +504,13 @@ class MediaWikiClient(RequestsClient):
     @classmethod
     def get_multi_site_pages(
             cls, site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]], preserve_comments=False,
-            search=False
+            search=False, no_cache=False
     ) -> Tuple[Dict[str, Dict[str, WikiPage]], Dict[str, Exception]]:
         """
         :param dict site_title_map: Mapping of {site|MediaWikiClient: list(titles)}
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
+        :param bool search: Whether the provided title should also be searched for, in case there is not an exact match.
+        :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
         :return tuple: Tuple containing mappings of {site: results}, {site: errors}
         """
         client_title_map = {
@@ -509,7 +519,7 @@ class MediaWikiClient(RequestsClient):
         }
         with ThreadPoolExecutor(max_workers=max(1, len(client_title_map))) as executor:
             _futures = {
-                executor.submit(client.get_pages, titles, preserve_comments, search): client.host
+                executor.submit(client.get_pages, titles, preserve_comments, search, no_cache): client.host
                 for client, titles in client_title_map.items()
             }
             results = {}
