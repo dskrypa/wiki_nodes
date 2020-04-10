@@ -212,6 +212,9 @@ class MediaWikiClient(RequestsClient):
         except KeyError:
             log.debug(f'Response from {resp.url} contained no \'query\' key; found: {", ".join(response)}')
             return {}, None
+        except TypeError:
+            log.debug(f'Response from {resp.url} was not a dict; found: {response}')
+            return {}, None
 
         if 'pages' in results:
             parsed = self._parse_query_pages(results)
