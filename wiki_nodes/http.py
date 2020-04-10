@@ -448,8 +448,8 @@ class MediaWikiClient(RequestsClient):
             self._search_cache[lc_query] = results = self.query(list='search', srsearch=query, srlimit=limit, **params)
         return results
 
-    def get_pages(self, titles: Union[str, Iterable[str]], preserve_comments=False) -> Dict[str, WikiPage]:
-        raw_pages = self.query_pages(titles)
+    def get_pages(self, titles: Union[str, Iterable[str]], preserve_comments=False, search=False) -> Dict[str, WikiPage]:
+        raw_pages = self.query_pages(titles, search=search)
         pages = {
             result_title: WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
             for result_title, page in raw_pages.items()
@@ -495,7 +495,8 @@ class MediaWikiClient(RequestsClient):
 
     @classmethod
     def get_multi_site_pages(
-            cls, site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]], preserve_comments=False
+            cls, site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]], preserve_comments=False,
+            search=False
     ) -> Tuple[Dict[str, Dict[str, WikiPage]], Dict[str, Exception]]:
         """
         :param dict site_title_map: Mapping of {site|MediaWikiClient: list(titles)}
@@ -508,7 +509,7 @@ class MediaWikiClient(RequestsClient):
         }
         with ThreadPoolExecutor(max_workers=max(1, len(client_title_map))) as executor:
             _futures = {
-                executor.submit(client.get_pages, titles, preserve_comments): client.host
+                executor.submit(client.get_pages, titles, preserve_comments, search): client.host
                 for client, titles in client_title_map.items()
             }
             results = {}
