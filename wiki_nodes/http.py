@@ -152,7 +152,7 @@ class MediaWikiClient(RequestsClient):
                 return self._query(titles=titles, **params)
             else:
                 full_resp = {}
-                for group in partitioned(titles, 50):
+                for group in partitioned(list(titles), 50):
                     full_resp.update(self._query(titles=group, **params))
                 return full_resp
         else:
