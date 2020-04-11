@@ -430,15 +430,15 @@ class MediaWikiClient(RequestsClient):
 
             for title in no_data:
                 qlog.debug(f'No page was found from {self.host} for title={title!r} - caching null page')
-                norm_title = normalize(title)
-                self._page_cache[norm_title] = None
-                if norm_title in norm_to_orig:
-                    norm_to_orig.pop(norm_title)
-
-            # for title in norm_to_orig.values():
-            for title in norm_to_orig.keys():
-                qlog.debug(f'No content was returned from {self.host} for title={title!r} - caching null page')
+                # norm_title = normalize(title)
                 self._page_cache[title] = None
+                # if norm_title in norm_to_orig:
+                #     norm_to_orig.pop(norm_title)
+
+            for title in norm_to_orig.values():
+                if title not in self._page_cache:
+                    qlog.debug(f'No content was returned from {self.host} for title={title!r} - caching null page')
+                    self._page_cache[title] = None
 
         return pages
 
