@@ -642,7 +642,7 @@ class Section(Node):
             return max(c.depth for c in self.children.values()) + 1
         return 0
 
-    def find(self, title: str) -> 'Section':
+    def find(self, title: str, default: None = _NotSet) -> Optional['Section']:
         """Find the subsection with the given title"""
         try:
             return self.children[title]
@@ -653,7 +653,9 @@ class Section(Node):
                 return child.find(title)
             except KeyError:
                 pass
-        raise KeyError(f'Cannot find section={title!r} in {self} or any subsections')
+        if default is _NotSet:
+            raise KeyError(f'Cannot find section={title!r} in {self} or any subsections')
+        return default
 
     @cached_property
     def content(self):
