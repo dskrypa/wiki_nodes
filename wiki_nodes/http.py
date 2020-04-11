@@ -378,7 +378,10 @@ class MediaWikiClient(RequestsClient):
                 redirected_from = normalize(data['redirected_from'] or '')
                 if redirected_from:
                     self._store_normalized(redirected_from, title, 'redirect')
-                    pages[norm_to_orig.pop(redirected_from)] = entry
+                    try:
+                        pages[norm_to_orig.pop(redirected_from)] = entry
+                    except KeyError:
+                        log.debug(f'Unexpected KeyError for key={redirected_from!r} in norm_to_orig={norm_to_orig}')
                 else:
                     norm_title = normalize(title)
                     if title not in need:  # Not all sites indicate when a redirect happened
