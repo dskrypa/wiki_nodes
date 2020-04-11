@@ -43,6 +43,18 @@ class WikiPage(Root):
         return f'<{type(self).__name__}[{self.title!r} @ {self.site}]>'
 
     @cached_property
+    def _sort_key(self):
+        return self.is_disambiguation, self.title, self.site
+
+    def __eq__(self, other: 'WikiPage') -> bool:
+        if not isinstance(other, WikiPage):
+            return False
+        return self._sort_key == other._sort_key
+
+    def __lt__(self, other: 'WikiPage') -> bool:
+        return self._sort_key < other._sort_key
+
+    @cached_property
     def categories(self):
         categories = {
             cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)
