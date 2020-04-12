@@ -109,3 +109,7 @@ class WikiPage(Root):
         except Exception as e:
             log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
+
+    def links(self, unique=True, special=False, interwiki=False):
+        links = {l for l in self.find_all(Link) if (special or not l.special) and (interwiki or not l.interwiki)}
+        return set({link.title: link for link in links}.values()) if unique else links
