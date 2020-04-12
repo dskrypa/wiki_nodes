@@ -15,7 +15,7 @@ from typing import Optional, Union, Iterable
 from wikitextparser import WikiText
 
 from .compat import cached_property
-from .nodes import Root, Template, String, CompoundNode, Tag
+from .nodes import Root, Template, String, CompoundNode, Tag, Link
 
 __all__ = ['WikiPage']
 log = logging.getLogger(__name__)
@@ -68,6 +68,10 @@ class WikiPage(Root):
     @cached_property
     def is_template(self) -> bool:
         return self.title.startswith('Template:')
+
+    @cached_property
+    def as_link(self) -> Link:
+        return Link(f'[[{self.title}]]', self.root)
 
     @cached_property
     def infobox(self):
