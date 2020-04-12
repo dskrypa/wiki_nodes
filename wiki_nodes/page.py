@@ -10,7 +10,7 @@ Notes:\n
 """
 
 import logging
-from typing import Optional, Union, Iterable
+from typing import Optional, Union, Iterable, Set
 
 from wikitextparser import WikiText
 
@@ -110,6 +110,12 @@ class WikiPage(Root):
             log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
 
-    def links(self, unique=True, special=False, interwiki=False):
+    def links(self, unique=True, special=False, interwiki=False) -> Set[Link]:
+        """
+        :param bool unique: Only include links with unique titles
+        :param bool special: Include special (file, image, category, etc) links
+        :param bool interwiki: Include interwiki links
+        :return set: The set of Link objects matching the specified filters
+        """
         links = {l for l in self.find_all(Link) if (special or not l.special) and (interwiki or not l.interwiki)}
         return set({link.title: link for link in links}.values()) if unique else links
