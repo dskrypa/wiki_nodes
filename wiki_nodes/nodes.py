@@ -25,7 +25,7 @@ from .utils import strip_style, ClearableCachedPropertyMixin
 
 __all__ = [
     'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'String', 'Link', 'List', 'Table', 'Template', 'Root',
-    'Section', 'as_node', 'extract_links', 'TableSeparator', 'Tag'
+    'Section', 'as_node', 'extract_links', 'TableSeparator', 'Tag', 'ListEntry'
 ]
 log = logging.getLogger(__name__)
 PY_LT_37 = sys.version_info.major == 3 and sys.version_info.minor < 7
