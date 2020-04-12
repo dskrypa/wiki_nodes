@@ -66,6 +66,10 @@ class WikiPage(Root):
         return any('disambiguation' in cat for cat in self.categories)
 
     @cached_property
+    def is_template(self) -> bool:
+        return self.title.startswith('Template:')
+
+    @cached_property
     def infobox(self):
         """
         Turns the infobox into a dict.  Values are returned as :class:`WikiText<wikitextparser.WikiText>` to allow for
