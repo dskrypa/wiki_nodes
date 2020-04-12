@@ -10,10 +10,11 @@ This is still a work in process - some data types are not fully handled yet, and
 import logging
 import re
 import sys
+from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from copy import copy
-from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable
+from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable, Tuple
 
 from wikitextparser import (
     WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
@@ -28,6 +29,7 @@ __all__ = [
     'Section', 'as_node', 'extract_links', 'TableSeparator', 'Tag', 'ListEntry'
 ]
 log = logging.getLogger(__name__)
+SPECIAL_LINK_PREFIXES = {'category', 'image', 'file', 'template'}
 PY_LT_37 = sys.version_info.major == 3 and sys.version_info.minor < 7
 ordered_dict = OrderedDict if PY_LT_37 else dict            # 3.7+ dict retains insertion order; dict repr is cleaner
 _NotSet = object()
@@ -78,7 +80,13 @@ class BasicNode(Node):
         return True
 
 
-class CompoundNode(Node):
+class ContainerNode(ABC):
+    @abstractmethod
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
+        raise NotImplementedError
+
+
+class CompoundNode(Node, ContainerNode):
     @cached_property
     def children(self) -> ListType[N]:
         return []
@@ -121,20 +129,17 @@ class CompoundNode(Node):
         :return: Generator that yields :class:`Node` objects of the given type
         """
         for value in self:
-            if isinstance(value, node_cls):
-                if not kwargs or all(getattr(value, k, _NotSet) == v for k, v in kwargs.items()):
-                    yield value
-            if recurse and isinstance(value, CompoundNode):
-                yield from value.find_all(node_cls, recurse, **kwargs)
+            yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
-    def find_one(self, *args, **kwargs) -> Optional[Node]:
+    def find_one(self, node_cls: Type[N], *args, **kwargs) -> Optional[N]:
         """
+        :param type node_cls: The class of :class:`Node` to find
         :param args: Positional args to pass to :meth:`.find_all`
         :param kwargs: Keyword args to pass to :meth:`.find_all`
         :return: The first :class:`Node` object that matches the given criteria, or None if no matching nodes could be
           found.
         """
-        return next(self.find_all(*args, **kwargs), None)
+        return next(self.find_all(node_cls, *args, **kwargs), None)
 
     def pformat(self, indentation=0) -> str:
         indent = (' ' * indentation)
@@ -171,6 +176,20 @@ class MappingNode(CompoundNode, MutableMapping):
         )
         children = ',\n'.join(child_lines)
         return f'{indent}<{self.__class__.__name__}{{\n{children}\n{indent}}}>'
+
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
+        """
+        Find all descendent nodes of the given type, optionally with additional matching criteria.
+
+        :param type node_cls: The class of :class:`Node` to find
+        :param bool recurse: Whether descendent nodes should be searched recursively or just the direct children of this
+          node
+        :param kwargs: If specified, keys should be names of attributes of the discovered nodes, for which the value of
+          the node's attribute must equal the provided value
+        :return: Generator that yields :class:`Node` objects of the given type
+        """
+        for value in self.values():
+            yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
 
 class Tag(BasicNode):
@@ -225,13 +244,20 @@ class String(BasicNode):
 
 class Link(BasicNode):
     def __init__(self, raw: Union[str, WikiText, _Link], root: Optional['Root'] = None):
-        super().__init__(raw, root)
-        self.link = self.raw.wikilinks[0]
-        self.title = self.link.title    # target = title + fragment
-        self.text = self.link.text
+        super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
+        self._orig = self.raw.wikilinks[0]  # type: _Link
+        self.title = self._orig.title       # type: str
+        self.text = self._orig.text         # type: str
+
+    def __lt__(self, other: 'Link'):
+        return (self.interwiki, self.special, self.raw.string) < (other.interwiki, other.special, other.raw.string)
+
+    @classmethod
+    def from_title(cls, title: str, root: Optional['Root'] = None, text: Optional[str] = None) -> 'Link':
+        return cls(f'[[{title}|{text}]]' if text else f'[[{title}]]', root)
 
     @cached_property
-    def show(self):
+    def show(self) -> Optional[str]:
         """The text that would be shown for this link (without fragment)"""
         text = self.text or self.title
         return text.strip() if text else None
@@ -241,11 +267,16 @@ class Link(BasicNode):
         return self.root.site if self.root else None
 
     @cached_property
-    def interwiki(self):
-        return ':' in self.title
+    def special(self) -> bool:
+        prefix = self.title.split(':', 1)[0].lower()
+        return prefix in SPECIAL_LINK_PREFIXES
 
     @cached_property
-    def iw_key_title(self):
+    def interwiki(self) -> bool:
+        return ':' in self.title and not self.special
+
+    @cached_property
+    def iw_key_title(self) -> Tuple[str, str]:
         if self.interwiki:
             iw_site, iw_title = map(str.strip, self.title.split(':', maxsplit=1))
             return iw_site.lower(), iw_title
@@ -257,8 +288,8 @@ class Link(BasicNode):
             if parts[0] in ('www', 'wiki', 'en'):       # omit common prefixes
                 parts = parts[1:]
             site = '.'.join(parts)
-            return f'<{self.__class__.__name__}:{self.link.string!r}@{site}>'
-        return f'<{self.__class__.__name__}:{self.link.string!r}>'
+            return f'<{self.__class__.__name__}:{self._orig.string!r}@{site}>'
+        return f'<{self.__class__.__name__}:{self._orig.string!r}>'
 
     @cached_property
     def to_file(self) -> bool:
@@ -369,8 +400,7 @@ class List(CompoundNode):
 
     def iter_flat(self) -> Iterator[N]:
         for child in self.children:
-            val = child.value
-            if val:
+            if val := child.value:
                 yield val
             if child.sub_list:
                 yield from child.sub_list.iter_flat()
@@ -441,8 +471,7 @@ class List(CompoundNode):
 
         for line in map(str.strip, self.raw.fullitems):
             ctrl_chars, content = map(str.strip, ctrl_pat_match(line).groups())
-            m = style_pat_match(content)
-            if m:
+            if m := style_pat_match(content):
                 content = reformatter.format(*m.groups())
 
             raw_key, raw_val = content.split(sep, maxsplit=1)
@@ -525,7 +554,7 @@ class TableSeparator:
         return f'<{self.__class__.__name__}({self.value!r})>'
 
 
-class Template(BasicNode):
+class Template(BasicNode, ContainerNode):
     _defaults = {'n/a': 'N/A'}
     _basic_names = {'n/a', 'small'}
 
@@ -595,6 +624,14 @@ class Template(BasicNode):
             raise TypeError('Cannot index a template with no value')
         return self.value[item]
 
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
+        if value := self.value:
+            if isinstance(value, Node):
+                yield from _find_all(value, node_cls, recurse, **kwargs)
+            else:
+                for node in value:
+                    yield from _find_all(node, node_cls, recurse, recurse, **kwargs)
+
 
 class Root(Node):
     # Children = sections
@@ -612,6 +649,19 @@ class Root(Node):
         yield root
         yield from root
 
+    def find_all(self, node_cls: Type[N], recurse=True, **kwargs) -> Iterator[N]:
+        """
+        Find all descendent nodes of the given type.
+
+        :param type node_cls: The class of :class:`Node` to find
+        :param bool recurse: Whether descendent nodes should be searched recursively or just the direct children of this
+          node
+        :param kwargs: If specified, keys should be names of attributes of the discovered nodes, for which the value of
+          the node's attribute must equal the provided value
+        :return: Generator that yields :class:`Node` objects of the given type
+        """
+        return self.sections.find_all(node_cls, recurse, **kwargs)
+
     @cached_property
     def sections(self) -> 'Section':
         sections = iter(self.raw.sections)
@@ -628,7 +678,7 @@ class Root(Node):
         return root
 
 
-class Section(Node):
+class Section(Node, ContainerNode):
     def __init__(self, raw: Union[str, WikiText, _Section], root: Optional['Root'], preserve_comments=False, _index=0):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
@@ -894,6 +944,23 @@ class Section(Node):
             for child in self.children.values():
                 child.pprint(mode, indent=indent, recurse=recurse)
 
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
+        if content := self.content:
+            yield from _find_all(content, node_cls, recurse, **kwargs)
+        if recurse:
+            for child in self:
+                yield from _find_all(child, node_cls, recurse, **kwargs)
+
+
+def _find_all(node, node_cls: Type[N], recurse=True, _recurse_first=True, **kwargs) -> Iterator[N]:
+    if isinstance(node, node_cls):
+        if not kwargs or all(getattr(node, k, _NotSet) == v for k, v in kwargs.items()):
+            yield node
+        if recurse and isinstance(node, ContainerNode):
+            yield from node.find_all(node_cls, recurse, **kwargs)
+    elif _recurse_first and isinstance(node, ContainerNode):
+        yield from node.find_all(node_cls, recurse=recurse, **kwargs)
+
 
 WTP_TYPE_METHOD_NODE_MAP = {
     'Template': 'templates',
@@ -1043,25 +1110,25 @@ def _process_node_parts(wiki_text, node, before, after, drop, root, preserve_com
 
 def extract_links(raw, root: Optional[Root] = None):
     try:
-        end_pat = extract_links._end_pat
-        start_pat = extract_links._start_pat
+        end_match = extract_links._end_match
+        start_match = extract_links._start_match
     except AttributeError:
-        end_pat = extract_links._end_pat = re.compile(r'^(.*?)([\'"]+)$', re.DOTALL)
-        start_pat = extract_links._start_pat = re.compile(r'^([\'"]+)(.*)$', re.DOTALL)
+        end_match = extract_links._end_match = re.compile(r'^(.*?)([\'"]+)$', re.DOTALL).match
+        start_match = extract_links._start_match = re.compile(r'^([\'"]+)(.*)$', re.DOTALL).match
 
     content = []
     raw_str = raw.string.strip()
+    # log.debug(f'\n\nProcessing {raw_str=!r}', extra={'color': 14})
     links = raw.wikilinks
-    while links:
+    while links and raw_str:
         link = links.pop(0)
+        # log.debug(f'Links remaining={len(links)}; processing {link=}')
         before, link_text, raw_str = map(str.strip, raw_str.partition(link.string))
-        # log.debug(f'Split raw into:\nbefore={before!r}\nlink={link_text!r}\nafter={raw_str!r}\nfor={link.string!r}')
+        # log.debug(f'\n\nSplit raw into:\nbefore={before!r}\nlink={link_text!r}\nafter={raw_str!r}')
         if before and raw_str:
-            bm = end_pat.match(before)
-            if bm:
+            if bm := end_match(before):
                 # log.debug(f' > Found quotes at the end of before: {bm.group(2)}')
-                am = start_pat.match(raw_str)
-                if am:
+                if am := start_match(raw_str):
                     # log.debug(f' > Found quotes at the beginning of after: {am.group(1)}')
                     before = bm.group(1).strip()
                     link_text = f'{bm.group(2)}{link_text}{am.group(1)}'
@@ -1070,6 +1137,7 @@ def extract_links(raw, root: Optional[Root] = None):
             content.append(String(before, root))
         content.append(Link(link_text, root))
         if raw_str:
+            # log.debug(f'Replacing links=\n{links}\nwith links=\n{WikiText(raw_str).wikilinks}')
             links = WikiText(raw_str).wikilinks     # Prevent breaking on nested links
 
     if raw_str:

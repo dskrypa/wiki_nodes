@@ -71,7 +71,7 @@ class WikiPage(Root):
 
     @cached_property
     def as_link(self) -> Link:
-        return Link(f'[[{self.title}]]', self)
+        return Link.from_title(self.title, self)
 
     @cached_property
     def infobox(self):
