@@ -568,6 +568,28 @@ class Template(BasicNode):
             mapping[key] = as_node(arg.value.strip(), self.root, self.preserve_comments, strict_tags=True)
         return mapping
 
+    @cached_property
+    def zipped(self):
+        if not isinstance(self.value, MappingNode):
+            return None
+        mapping = MappingNode(self.raw, self.root, self.preserve_comments)
+        keys, values = [], []
+        num_search = re.compile(r'[a-z](\d+)$', re.IGNORECASE).search
+        for key, value in self.value.items():
+            if num_search(key):
+                if len(keys) == len(values):
+                    if isinstance(value, String):
+                        keys.append(value.value)
+                    else:
+                        log.debug(f'Unexpected zip key={value!r}')
+                else:
+                    values.append(value)
+            else:
+                keys.append(key)
+                values.append(value)
+        mapping.update(zip(keys, values))
+        return mapping
+
     def __getitem__(self, item):
         if self.value is None:
             raise TypeError('Cannot index a template with no value')

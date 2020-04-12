@@ -25,11 +25,9 @@ setup(
     classifiers=[
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8'
+        'Programming Language :: Python :: 3.8'     # Due to use of walrus operator
     ],
-    python_requires='~=3.6',
+    python_requires='~=3.8',
     install_requires=[
         'requests_client @ git+git://github.com/dskrypa/requests_client',
         'db_cache @ git+git://github.com/dskrypa/db_cache',
