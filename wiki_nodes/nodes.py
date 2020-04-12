@@ -73,7 +73,7 @@ class BasicNode(Node):
         return f'<{self.__class__.__name__}({self.raw!r})>'
 
     def __hash__(self):
-        return hash(self.raw.string)
+        return hash((self.__class__, self.raw.string))
 
     @property
     def is_basic(self):
@@ -249,12 +249,30 @@ class Link(BasicNode):
         self.title = self._orig.title       # type: str
         self.text = self._orig.text         # type: str
 
-    def __lt__(self, other: 'Link'):
-        return (self.interwiki, self.special, self.raw.string) < (other.interwiki, other.special, other.raw.string)
+    def __eq__(self, other: 'Link') -> bool:
+        return self._str == other._str and self.source_site == other.source_site
+
+    def __hash__(self):
+        return hash((self.__class__, self._str, self.source_site))
+
+    def __lt__(self, other: 'Link') -> bool:
+        return self.__cmp_tuple < other.__cmp_tuple
+
+    @property
+    def __cmp_tuple(self):
+        return self.interwiki, self.special, self._str, self.source_site
+
+    @classmethod
+    def _format(cls, title: str, text: Optional[str] = None):
+        return f'[[{title}|{text}]]' if text else f'[[{title}]]'
 
     @classmethod
     def from_title(cls, title: str, root: Optional['Root'] = None, text: Optional[str] = None) -> 'Link':
-        return cls(f'[[{title}|{text}]]' if text else f'[[{title}]]', root)
+        return cls(cls._format(title, text), root)
+
+    @cached_property
+    def _str(self):
+        return self._format(self.title, self.text)
 
     @cached_property
     def show(self) -> Optional[str]:
@@ -288,8 +306,8 @@ class Link(BasicNode):
             if parts[0] in ('www', 'wiki', 'en'):       # omit common prefixes
                 parts = parts[1:]
             site = '.'.join(parts)
-            return f'<{self.__class__.__name__}:{self._orig.string!r}@{site}>'
-        return f'<{self.__class__.__name__}:{self._orig.string!r}>'
+            return f'<{self.__class__.__name__}:{self._str!r}@{site}>'
+        return f'<{self.__class__.__name__}:{self._str!r}>'
 
     @cached_property
     def to_file(self) -> bool:
