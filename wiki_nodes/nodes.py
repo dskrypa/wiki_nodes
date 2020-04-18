@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import MutableMapping
 from copy import copy
-from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable, Tuple
+from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable, Tuple, Mapping
 
 from wikitextparser import (
     WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
@@ -294,7 +294,12 @@ class Link(BasicNode):
 
     @cached_property
     def interwiki(self) -> bool:
-        return ':' in self.title and not self.special
+        if (root := self.root) and (iw_map := root._interwiki_map) and ':' in self.title:
+            prefix = self.title.split(':', 1)[0].lower()
+            # noinspection PyUnboundLocalVariable
+            return prefix in iw_map
+        else:
+            return False
 
     @cached_property
     def iw_key_title(self) -> Tuple[str, str]:
@@ -656,11 +661,15 @@ class Template(BasicNode, ContainerNode):
 
 class Root(Node):
     # Children = sections
-    def __init__(self, page_text: Union[str, WikiText], site: Optional[str] = None, preserve_comments=False):
+    def __init__(
+            self, page_text: Union[str, WikiText], site: Optional[str] = None, preserve_comments=False,
+            interwiki_map: Optional[Mapping[str, str]] = None
+    ):
         if isinstance(page_text, str):
             page_text = WikiText(page_text.replace('\xa0', ' '))
         super().__init__(page_text, None, preserve_comments)
         self.site = site                                        # type: Optional[str]
+        self._interwiki_map = interwiki_map                     # type: Optional[Mapping[str, str]]
 
     def __getitem__(self, item: str) -> 'Section':
         return self.sections[item]

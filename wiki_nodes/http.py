@@ -492,14 +492,19 @@ class MediaWikiClient(RequestsClient):
     ) -> Dict[str, WikiPage]:
         raw_pages = self.query_pages(titles, search=search, no_cache=no_cache)
         pages = {
-            result_title: WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
-            for result_title, page in raw_pages.items()
+            result_title: WikiPage(
+                data['title'], self.host, data['wikitext'], data['categories'], preserve_comments, self.interwiki_map
+            )
+            for result_title, data in raw_pages.items()
         }   # The result_title may have redirected to the actual title
         return pages
 
     def get_page(self, title: str, preserve_comments=False, search=False, no_cache=False) -> WikiPage:
-        page = self.query_page(title, search=search, no_cache=no_cache)
-        return WikiPage(page['title'], self.host, page['wikitext'], page['categories'], preserve_comments)
+        data = self.query_page(title, search=search, no_cache=no_cache)
+        page = WikiPage(
+            data['title'], self.host, data['wikitext'], data['categories'], preserve_comments, self.interwiki_map
+        )
+        return page
 
     @classmethod
     def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> WikiPage:

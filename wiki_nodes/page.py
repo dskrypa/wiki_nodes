@@ -10,7 +10,7 @@ Notes:\n
 """
 
 import logging
-from typing import Optional, Union, Iterable, Set
+from typing import Optional, Union, Iterable, Set, Mapping
 
 from wikitextparser import WikiText
 
@@ -26,7 +26,7 @@ class WikiPage(Root):
 
     def __init__(
             self, title: str, site: Optional[str], content: Union[str, WikiText], categories: Iterable[str],
-            preserve_comments=False
+            preserve_comments=False, interwiki_map: Optional[Mapping[str, str]] = None
     ):
         """
         :param str title: The page title
@@ -34,8 +34,9 @@ class WikiPage(Root):
         :param str|WikiText content: The page content
         :param iterable categories: This page's categories
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
+        :param dict interwiki_map: Mapping of interwiki link prefix to wiki URL
         """
-        super().__init__(content, site, preserve_comments=preserve_comments)
+        super().__init__(content, site, preserve_comments=preserve_comments, interwiki_map=interwiki_map)
         self.title = title
         self._categories = categories
 
