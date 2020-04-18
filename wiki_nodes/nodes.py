@@ -142,7 +142,7 @@ class CompoundNode(Node, ContainerNode):
         return next(self.find_all(node_cls, *args, **kwargs), None)
 
     def pformat(self, indentation=0) -> str:
-        indent = (' ' * indentation)
+        indent = ' ' * indentation
         inside = indent + (' ' * 4)
         child_lines = ('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
         children = ',\n'.join(child_lines)
@@ -578,6 +578,10 @@ class TableSeparator:
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.value!r})>'
+
+    def pformat(self, indentation=0) -> str:
+        indent = ' ' * indentation
+        return f'{indent}<{self.__class__.__name__}[{self.value!r}]>'
 
 
 class Template(BasicNode, ContainerNode):
