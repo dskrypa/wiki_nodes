@@ -55,7 +55,8 @@ class WikiPage(Root):
         return self._sort_key < other._sort_key
 
     @cached_property
-    def categories(self):
+    def categories(self) -> Set[str]:
+        """The lower-case categories for this page, with ignored prefixes (if applicable) filtered out"""
         categories = {
             cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)
         }
@@ -74,7 +75,7 @@ class WikiPage(Root):
         return Link.from_title(self.title, self)
 
     @cached_property
-    def infobox(self):
+    def infobox(self) -> Optional[Template]:
         """
         Turns the infobox into a dict.  Values are returned as :class:`WikiText<wikitextparser.WikiText>` to allow for
         further processing of links or other data structures.  Wiki lists are converted to Python lists of WikiText
@@ -93,7 +94,7 @@ class WikiPage(Root):
         return None
 
     @cached_property
-    def intro(self):
+    def intro(self) -> Union[String, CompoundNode, None]:
         """
         Neither parser provides access to the 1st paragraph directly when an infobox template precedes it - need to
         remove the infobox from the 1st section, or any other similar elements.
