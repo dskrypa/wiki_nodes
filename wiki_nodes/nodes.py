@@ -167,6 +167,9 @@ class MappingNode(CompoundNode, MutableMapping):
     def children(self) -> Dict[Union[str, N], Optional[N]]:
         return ordered_dict()
 
+    def keys(self):
+        return self.children.keys()
+
     def pformat(self, indentation=0):
         indent = (' ' * indentation)
         inside = indent + (' ' * 4)
