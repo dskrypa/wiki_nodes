@@ -203,7 +203,7 @@ class MappingNode(CompoundNode, MutableMapping):
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
 
-class Tag(BasicNode):
+class Tag(BasicNode, ContainerNode):
     def __init__(self, raw: Union[str, WikiText, _Tag], root: Optional['Root'] = None, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
@@ -223,6 +223,14 @@ class Tag(BasicNode):
         if self.name == 'nowiki':
             return String(self.raw.contents.strip(), self.root)
         return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
+
+    @property
+    def is_basic(self):
+        return self.value.is_basic
+
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
+        if value := self.value:
+            yield from _find_all(value, node_cls, recurse, **kwargs)
 
     def __getitem__(self, item):
         return self.attrs[item]
