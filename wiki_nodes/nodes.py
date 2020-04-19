@@ -938,13 +938,21 @@ class Section(Node, ContainerNode):
             title = None            # type: Optional[str]
             subsection_nodes = []
             for child in content:
+                new_title = None
                 if isinstance(child, List) and len(child) == 1 and child.raw.string.startswith(';'):
+                    title_node = child.children[0].value
+                    if isinstance(title_node, String):
+                        new_title = title_node.value
+                    elif title_node.__class__ is CompoundNode and title_node.only_basic:
+                        new_title = ' '.join(n.value for n in title_node)
+
+                if new_title:
                     if title:
                         did_fix = True
                         self._add_subsection(title, subsection_nodes)
                         subsection_nodes = []
 
-                    title = child.children[0].value.value
+                    title = new_title
                 elif title:
                     subsection_nodes.append(child)
                 else:
