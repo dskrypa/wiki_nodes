@@ -376,6 +376,12 @@ class ListEntry(CompoundNode):
     def __bool__(self):
         return bool(self.value) or bool(self.children)
 
+    def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
+        if value := self.value:
+            yield from _find_all(value, node_cls, recurse, **kwargs)
+        for value in self:
+            yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
+
     @cached_property
     def sub_list(self) -> Optional['List']:
         if not self._children:
