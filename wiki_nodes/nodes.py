@@ -261,6 +261,8 @@ class Link(BasicNode):
         self.text = self._orig.text         # type: str
 
     def __eq__(self, other: 'Link') -> bool:
+        if not isinstance(other, Link):
+            return False
         return self._str == other._str and self.source_site == other.source_site
 
     def __hash__(self):
