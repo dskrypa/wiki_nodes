@@ -315,24 +315,18 @@ class Link(BasicNode):
 
     @cached_property
     def interwiki(self) -> bool:
-        try:
-            return bool(self.iw_key_title)
-        except ValueError:
+        if (root := self.root) and (iw_map := root._interwiki_map) and ':' in self.title:
+            prefix = self.title.split(':', 1)[0].lower()
+            # noinspection PyUnboundLocalVariable
+            return prefix in iw_map
+        else:
             return False
 
     @cached_property
     def iw_key_title(self) -> Tuple[str, str]:
-        title = self.title
-        if (root := self.root) and (iw_map := root._interwiki_map) and ':' in title:
-            prefix, iw_title = map(str.strip, title.split(':', maxsplit=1))
-            prefix = prefix.lower()
-            # noinspection PyUnboundLocalVariable
-            if prefix in iw_map:
-                return prefix, iw_title
-            if title.count(':') > 1:
-                for iw_prefix in iw_map:
-                    if title.startswith(iw_prefix):
-                        return iw_prefix, title[len(iw_prefix) + 1:]
+        if self.interwiki:
+            iw_site, iw_title = map(str.strip, self.title.split(':', maxsplit=1))
+            return iw_site.lower(), iw_title
         raise ValueError(f'{self} is not an interwiki link')
 
     def __repr__(self):
