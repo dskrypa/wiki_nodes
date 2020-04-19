@@ -58,6 +58,10 @@ class Node(ClearableCachedPropertyMixin):
             return False
         return self.raw.string == other.raw.string
 
+    @property
+    def is_basic(self):
+        return None
+
     def raw_pprint(self):
         print(self.raw.pformat())
 
@@ -111,6 +115,10 @@ class CompoundNode(Node, ContainerNode):
 
     def __bool__(self) -> bool:
         return bool(self.children)
+
+    @property
+    def is_basic(self):
+        return False
 
     @property
     def only_basic(self) -> bool:
@@ -260,6 +268,9 @@ class Link(BasicNode):
 
     def __lt__(self, other: 'Link') -> bool:
         return self.__cmp_tuple < other.__cmp_tuple
+
+    def __str__(self):
+        return self.show or self.raw.string
 
     @property
     def __cmp_tuple(self):
@@ -944,7 +955,7 @@ class Section(Node, ContainerNode):
                     if isinstance(title_node, String):
                         new_title = title_node.value
                     elif title_node.__class__ is CompoundNode and title_node.only_basic:
-                        new_title = ' '.join(n.value for n in title_node)
+                        new_title = ' '.join(str(n.value) for n in title_node)
 
                 if new_title:
                     if title:
