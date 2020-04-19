@@ -63,6 +63,9 @@ class MediaWikiClient(RequestsClient):
             self._norm_title_cache = DBCache(f'{self.host}_normalized_titles', cache_subdir='wiki', time_fmt='%Y')
             self.__initialized = True
 
+    def __repr__(self):
+        return f'<{self.__class__.__name__}({self.host})>'
+
     @cached_property
     def siteinfo(self) -> Dict[str, Any]:
         """Site metadata, including MediaWiki version.  Cached to disk with TTL = 24 hours."""
