@@ -29,6 +29,7 @@ __all__ = [
     'Section', 'as_node', 'extract_links', 'TableSeparator', 'Tag', 'ListEntry'
 ]
 log = logging.getLogger(__name__)
+INTERWIKI_COMMUNITY_LINK_MATCH = re.compile(r'^(w:c:[^:]+):(.+)$').match
 SPECIAL_LINK_PREFIXES = {'category', 'image', 'file', 'template'}
 PY_LT_37 = sys.version_info.major == 3 and sys.version_info.minor < 7
 ordered_dict = OrderedDict if PY_LT_37 else dict            # 3.7+ dict retains insertion order; dict repr is cleaner
@@ -315,18 +316,25 @@ class Link(BasicNode):
 
     @cached_property
     def interwiki(self) -> bool:
-        if (root := self.root) and (iw_map := root._interwiki_map) and ':' in self.title:
-            prefix = self.title.split(':', 1)[0].lower()
-            # noinspection PyUnboundLocalVariable
-            return prefix in iw_map
-        else:
+        try:
+            return bool(self.iw_key_title)
+        except ValueError:
             return False
 
     @cached_property
     def iw_key_title(self) -> Tuple[str, str]:
-        if self.interwiki:
-            iw_site, iw_title = map(str.strip, self.title.split(':', maxsplit=1))
-            return iw_site.lower(), iw_title
+        title = self.title
+        if (root := self.root) and ':' in title:
+            if m := INTERWIKI_COMMUNITY_LINK_MATCH(title):
+                # noinspection PyTypeChecker
+                return tuple(m.groups())
+            elif iw_map := root._interwiki_map:
+                prefix, iw_title = title.split(':', maxsplit=1)
+                if prefix in iw_map:
+                    return prefix, iw_title
+                lc_prefix = prefix.lower()
+                if lc_prefix in iw_map:
+                    return lc_prefix, iw_title
         raise ValueError(f'{self} is not an interwiki link')
 
     def __repr__(self):

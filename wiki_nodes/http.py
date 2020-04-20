@@ -91,11 +91,19 @@ class MediaWikiClient(RequestsClient):
         return {row['prefix']: row['url'] for row in rows}
 
     def interwiki_client(self, iw_map_key: str) -> Optional['MediaWikiClient']:
+        if iw_map_key.startswith('w:c:'):
+            community = iw_map_key.rsplit(':', 1)[-1]
+            iw_map_key = 'w'
+        else:
+            community = None
+
         try:
             url = self.interwiki_map[iw_map_key]
         except KeyError:
             return None
         else:
+            if community:
+                url = url.replace('//community.', f'//{community}.')
             return MediaWikiClient(url, nopath=True)
 
     @cached_property
