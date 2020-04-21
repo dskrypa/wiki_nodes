@@ -652,8 +652,11 @@ class Template(BasicNode, ContainerNode):
             return [a.value for a in args]
         elif all(arg.positional for arg in args):
             if len(args) == 1:
-                value = args[0].value or self._defaults.get(self.lc_name or '')
-                return as_node(value, self.root, self.preserve_comments)
+                raw_value = args[0].value or self._defaults.get(self.lc_name or '')
+                value = as_node(raw_value, self.root, self.preserve_comments)
+                if self.lc_name in ('main', 'see also') and isinstance(value, String):
+                    value = Link.from_title(value.value, self.root)
+                return value
             return [as_node(a.value, self.root, self.preserve_comments) for a in args]
 
         mapping = MappingNode(self.raw, self.root, self.preserve_comments)
