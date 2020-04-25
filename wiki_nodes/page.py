@@ -64,6 +64,12 @@ class WikiPage(Root):
         return categories
 
     @cached_property
+    def disambiguation_link(self) -> Optional[Link]:
+        if any('articles needing clarification' in cat for cat in self.categories):
+            return Link.from_title(f'{self.title}_(disambiguation)', self)
+        return None
+
+    @cached_property
     def is_disambiguation(self) -> bool:
         return any('disambiguation' in cat for cat in self.categories)
 
