@@ -213,8 +213,13 @@ class MediaWikiClient(RequestsClient):
                             elif key in skip_merge:
                                 pass
                             else:
-                                base = f'Unexpected value to merge for title={title!r} key={key!r} '
-                                log.error(f'{base}type={type(full_val).__name__} full_val={full_val!r} new val={val!r}')
+                                if val is not None and full_val is None:
+                                    full[key] = val
+                                elif val == full_val:
+                                    pass
+                                else:
+                                    base = f'Unexpected value to merge for title={title!r} key={key!r} type='
+                                    log.error(f'{base}{type(full_val).__name__} full_val={full_val!r} new val={val!r}')
 
         return parsed
 
