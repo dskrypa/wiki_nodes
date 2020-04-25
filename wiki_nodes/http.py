@@ -58,6 +58,7 @@ class MediaWikiClient(RequestsClient):
             if MediaWikiClient._siteinfo_cache is None:
                 MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
             self._page_cache = TTLDBCache(f'{self.host}_pages', cache_subdir='wiki', ttl=ttl)
+            self._page_search_cache = TTLDBCache(f'{self.host}_search_pages', cache_subdir='wiki', ttl=ttl)
             self._search_cache = TTLDBCache(f'{self.host}_searches', cache_subdir='wiki', ttl=ttl)
             # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
             self._norm_title_cache = DBCache(f'{self.host}_normalized_titles', cache_subdir='wiki', time_fmt='%Y')
@@ -336,11 +337,12 @@ class MediaWikiClient(RequestsClient):
         resp = self.query(titles=titles, prop='categories')
         return {title: data.get('categories', []) for title, data in resp.items()}
 
-    def _cached_and_needed(self, titles: Union[str, Iterable[str]], no_cache=False) -> Tuple[PageData, Set[str]]:
+    def _cached_and_needed(self, titles: Union[str, Iterable[str]], no_cache=False, search=False) -> Tuple[PageData, Set[str]]:
         if isinstance(titles, str):
             titles = [titles]
         need = set()
         pages = {}
+        caches = (self._page_cache, self._page_search_cache)
         for title in titles:
             try:
                 norm_title = self._norm_title_cache[normalize(title)]
@@ -353,7 +355,19 @@ class MediaWikiClient(RequestsClient):
                 need.add(title)
             else:
                 try:
-                    page = self._page_cache[norm_title]
+                    if search:
+                        for i, cache in enumerate(caches):
+                            try:
+                                page = cache[norm_title]
+                            except KeyError:
+                                if i:
+                                    raise
+                            else:
+                                break
+                        else:
+                            raise KeyError()
+                    else:
+                        page = self._page_cache[norm_title]
                 except KeyError:
                     need.add(title)
                     qlog.debug(f'No content was found in {self.host} page cache for title={norm_title!r}')
@@ -369,15 +383,16 @@ class MediaWikiClient(RequestsClient):
         qlog.debug(f'Storing title normalization for {orig!r} => {normalized!r} [{reason}]')
         self._norm_title_cache[orig] = normalized
 
-    def _cache_page(self, title, categories=None, revisions=None):
-        self._page_cache[title] = entry = {
+    def _cache_page(self, title, categories=None, revisions=None, search=False):
+        cache = self._page_search_cache if search else self._page_cache
+        cache[title] = entry = {
             'title': title,
             'categories': categories or [],
             'wikitext': revisions[0] if revisions else None
         }
         return entry
 
-    def _process_pages_resp(self, resp, need, norm_to_orig, pages):
+    def _process_pages_resp(self, resp, need, norm_to_orig, pages, search):
         no_data = []
         qlog.debug(f'Found {len(resp)} pages: [{", ".join(map(repr, sorted(resp)))}]')
         for title, data in resp.items():
@@ -385,7 +400,7 @@ class MediaWikiClient(RequestsClient):
             if data.get('pageid') is None:  # The page does not exist
                 no_data.append(title)
             else:
-                entry = self._cache_page(title, data.get('categories'), data.get('revisions'))
+                entry = self._cache_page(title, data.get('categories'), data.get('revisions'), search)
                 redirected_from = normalize(data['redirected_from'] or '')
                 if redirected_from:
                     self._store_normalized(redirected_from, title, 'redirect')
@@ -428,11 +443,11 @@ class MediaWikiClient(RequestsClient):
         :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
         :return dict: Mapping of {title: dict(page data)}
         """
-        pages, need = self._cached_and_needed(titles, no_cache)
+        pages, need = self._cached_and_needed(titles, no_cache, search)
         if need:
             norm_to_orig = {normalize(title): title for title in need}  # Return the exact titles that were requested
             resp = self.query(titles=need, rvprop='content', prop=['revisions', 'categories'])
-            no_data = self._process_pages_resp(resp, need, norm_to_orig, pages)
+            no_data = self._process_pages_resp(resp, need, norm_to_orig, pages, False)
 
             if no_data and search:
                 log.debug(f'Re-attempting retrieval of pages via searches: {sorted(no_data)}')
@@ -440,7 +455,7 @@ class MediaWikiClient(RequestsClient):
                 for title in _no_data:
                     kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': 'nearmatch'}
                     resp = self.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
-                    no_data.extend(self._process_pages_resp(resp, need, norm_to_orig, pages))
+                    no_data.extend(self._process_pages_resp(resp, need, norm_to_orig, pages, True))
 
             for title in no_data:
                 qlog.debug(f'No page was found from {self.host} for title={title!r} - caching null page')
