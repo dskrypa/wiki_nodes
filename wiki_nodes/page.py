@@ -109,7 +109,8 @@ class WikiPage(Root):
         try:
             for node in self.sections.content:
                 if isinstance(node, String):
-                    return node
+                    if not node.value.startswith('{{DISPLAYTITLE:'):
+                        return node
                 elif isinstance(node, Tag) and node.name == 'div' and type(node.value) is CompoundNode:
                     return node.value
                 elif type(node) is CompoundNode and node.only_basic:
