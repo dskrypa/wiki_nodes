@@ -483,7 +483,7 @@ class List(CompoundNode):
                 data[key.text] = val
             else:
                 data[key.raw.string] = val
-                log.debug(f'Unexpected type for {key=!r} with {val=!r} on {self.root}')
+                log.log(9, f'Unexpected type for List.as_dict {key=!r} with {val=!r} on {self.root}')
 
         if multiline is None:
             self._as_multiline_dict(node_fn, _add_kv)
