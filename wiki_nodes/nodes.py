@@ -25,16 +25,23 @@ from .compat import cached_property
 from .utils import strip_style, ClearableCachedPropertyMixin
 
 __all__ = [
-    'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'String', 'Link', 'List', 'Table', 'Template', 'Root',
-    'Section', 'as_node', 'extract_links', 'TableSeparator', 'Tag', 'ListEntry'
+    'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List', 'Table',
+    'Template', 'Root', 'Section', 'as_node', 'extract_links', 'TableSeparator', 'N', 'AnyNode'
 ]
 log = logging.getLogger(__name__)
-INTERWIKI_COMMUNITY_LINK_MATCH = re.compile(r'^(w:c:[^:]+):(.+)$').match
-SPECIAL_LINK_PREFIXES = {'category', 'image', 'file', 'template'}
+
 PY_LT_37 = sys.version_info.major == 3 and sys.version_info.minor < 7
 ordered_dict = OrderedDict if PY_LT_37 else dict            # 3.7+ dict retains insertion order; dict repr is cleaner
-_NotSet = object()
+
 N = TypeVar('N', bound='Node')
+AnyNode = Union[
+    'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List', 'Table',
+    'Template', 'Root', 'Section'
+]
+
+INTERWIKI_COMMUNITY_LINK_MATCH = re.compile(r'^(w:c:[^:]+):(.+)$').match
+SPECIAL_LINK_PREFIXES = {'category', 'image', 'file', 'template'}
+_NotSet = object()
 
 
 class Node(ClearableCachedPropertyMixin):
