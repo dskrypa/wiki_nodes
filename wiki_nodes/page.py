@@ -122,6 +122,8 @@ class WikiPage(Root):
                     return node.value
                 elif type(node) is CompoundNode and node.only_basic:
                     return node
+                elif type(node) is CompoundNode and all(isinstance(n, (String, Link, Tag)) for n in node):
+                    return node
         except Exception as e:
             log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
