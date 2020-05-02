@@ -15,7 +15,7 @@ from distutils.version import LooseVersion
 from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping, Set
 from urllib.parse import urlparse, unquote
 
-from requests import RequestException, Response
+from requests import RequestException
 
 from db_cache import TTLDBCache, DBCache
 from requests_client import RequestsClient
@@ -596,7 +596,7 @@ class MediaWikiClient(RequestsClient):
 
 
 def normalize(title: str) -> str:
-    return title.upper().replace('_', ' ').strip()
+    return title.replace('_', ' ').strip()
 
 
 if __name__ == '__main__':
