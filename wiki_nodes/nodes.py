@@ -74,7 +74,11 @@ class Node(ClearableCachedPropertyMixin):
         print(self.raw.pformat())
 
     def pprint(self, indentation=0):
-        print(self.pformat(indentation))
+        try:
+            print(self.pformat(indentation))
+        except OSError as e:
+            if e.errno != 22:   # occurs when writing to a closed pipe
+                raise
 
     def pformat(self, indentation=0):
         return (' ' * indentation) + repr(self)
@@ -1015,12 +1019,24 @@ class Section(Node, ContainerNode):
 
     def pprint(self, mode='reprs', indent=0, recurse=True):
         if mode == 'raw':
-            print(self.raw.pformat())
+            try:
+                print(self.raw.pformat())
+            except OSError as e:
+                if e.errno != 22:   # occurs when writing to a closed pipe
+                    raise
         elif mode == 'headers':
-            print(f'{" " * indent}{"=" * self.level}{self.title}{"=" * self.level}')
+            try:
+                print(f'{" " * indent}{"=" * self.level}{self.title}{"=" * self.level}')
+            except OSError as e:
+                if e.errno != 22:   # occurs when writing to a closed pipe
+                    raise
             indent += 4
         elif mode in ('reprs', 'content', 'processed'):
-            print(f'{" " * indent}{self}')
+            try:
+                print(f'{" " * indent}{self}')
+            except OSError as e:
+                if e.errno != 22:   # occurs when writing to a closed pipe
+                    raise
             indent += 4
             if mode == 'content':
                 self.content.pprint(indent)
