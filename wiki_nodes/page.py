@@ -64,6 +64,13 @@ class WikiPage(Root):
         return categories
 
     @cached_property
+    def similar_name_link(self) -> Optional[Link]:
+        content = self.sections.content
+        if content.__class__ is CompoundNode and isinstance(content[0], Template) and content[0].name == 'about':
+            return Link.from_title(content[0][2].value, self)
+        return None
+
+    @cached_property
     def disambiguation_link(self) -> Optional[Link]:
         if any('articles needing clarification' in cat for cat in self.categories):
             return Link.from_title(f'{self.title}_(disambiguation)', self)
