@@ -1081,16 +1081,16 @@ WTP_TYPE_METHOD_NODE_MAP = {
     'Tag': 'get_tags',          # Requires .get_tags() to be called before being in ._type_to_spans
     'Table': 'tables',          # Requires .tables to be accessed before being in ._type_to_spans
     'WikiList': 'get_lists',    # Requires .get_lists() to be called before being in ._type_to_spans
-    'WikiLink': 'wikilinks',
+    # 'WikiLink': 'wikilinks',
 }
 WTP_ACCESS_FIRST = {'Tag', 'Table', 'WikiList'}
 WTP_ATTR_TO_NODE_MAP = {
     'get_tags': Tag, 'templates': Template, 'tables': Table, 'get_lists': List, 'comments': BasicNode,
-    'wikilinks': Link, 'string': String
+    # 'wikilinks': Link, 'string': String
 }
 
 
-def as_node1(wiki_text: Union[str, WikiText], root: Optional[Root] = None, preserve_comments=False, strict_tags=False):
+def as_node(wiki_text: Union[str, WikiText], root: Optional[Root] = None, preserve_comments=False, strict_tags=False):
     """
     :param str|WikiText wiki_text: The content to process
     :param Root root: The root node that is an ancestor of this node
@@ -1174,7 +1174,7 @@ def as_node1(wiki_text: Union[str, WikiText], root: Optional[Root] = None, prese
 # as_node_counter = itertools.count()
 
 
-def as_node(text: Union[str, WikiText, None], root: Optional[Root] = None, preserve_comments=False, strict_tags=False):
+def as_node2(text: Union[str, WikiText, None], root: Optional[Root] = None, preserve_comments=False, strict_tags=False):
     # c = next(as_node_counter)
     # log.debug(f'[{c}] as_node({short_repr(text)})', extra={'color': 13})
     if not text:
