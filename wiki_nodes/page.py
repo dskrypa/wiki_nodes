@@ -116,10 +116,10 @@ class WikiPage(Root):
         try:
             # for i, node in enumerate(self.sections.content):
             for node in self.sections.content:
-                if isinstance(node, String):
-                    if not node.value.startswith('{{DISPLAYTITLE:'):
-                        # log.debug(f'Found intro in node#{i}')
-                        return node
+                # log.info(f'Processing node#{i}: {node.__class__.__name__}')
+                if isinstance(node, String) and not node.value.startswith('{{DISPLAYTITLE:'):
+                    # log.debug(f'Found intro in node#{i}')
+                    return node
                 elif isinstance(node, Tag) and node.name == 'div' and type(node.value) is CompoundNode:
                     # log.debug(f'Found intro in node#{i}')
                     return node.value
@@ -134,7 +134,7 @@ class WikiPage(Root):
                 #         types = Counter(n.__class__.__name__ for n in node)
                 #         log.debug(f' > Node contents: {json.dumps(types, sort_keys=True, indent=4)}')
         except Exception as e:
-            log.log(9, f'Error iterating over first section content of {self}: {e}')
+            log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
         return None
 
     def links(self, unique=True, special=False, interwiki=False) -> Set[Link]:

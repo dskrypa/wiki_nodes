@@ -4,11 +4,12 @@
 
 import logging
 import re
+from collections import UserDict
 from contextlib import suppress
 
 from .compat import cached_property
 
-__all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin']
+__all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap']
 log = logging.getLogger(__name__)
 
 
@@ -74,3 +75,28 @@ class ClearableCachedPropertyMixin:
         for prop in self._cached_properties():
             with suppress(KeyError):
                 del self.__dict__[prop]
+
+
+class IntervalCoverageMap(UserDict):
+    def __setitem__(self, span, value):
+        try:
+            a, b = map(int, span)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f'Expected a pair of ints; found {span}') from e
+        if a >= b:
+            raise ValueError(f'Expected a pair of ints where the first value is lower than the second; found {span}')
+
+        can_add = True
+        to_remove = []
+        for (x, y) in self.data:
+            if a <= x and b >= y:
+                to_remove.append((x, y))
+            elif x <= a < b <= y or x <= a < y <= b or a <= x < b <= y:
+                can_add = False
+                break
+
+        if can_add:
+            if to_remove:
+                for pair in to_remove:
+                    del self.data[pair]
+            self.data[(a, b)] = value
