@@ -276,9 +276,9 @@ class String(BasicNode):
 class Link(BasicNode):
     def __init__(self, raw: Union[str, WikiText, _Link], root: Optional['Root'] = None):
         super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
-        self._orig = self.raw.wikilinks[0]  # type: _Link
-        self.title = self._orig.title       # type: str
-        self.text = self._orig.text         # type: str
+        self._orig = self.raw.wikilinks[0]                  # type: _Link
+        self.title = ' '.join(self._orig.title.split())     # type: str     # collapse extra spaces
+        self.text = self._orig.text                         # type: str
 
     def __eq__(self, other: 'Link') -> bool:
         if not isinstance(other, Link):
