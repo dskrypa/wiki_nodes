@@ -669,6 +669,8 @@ class Template(BasicNode, ContainerNode):
                     value = Link.from_title(value.value, self.root)
                 return value
             return [as_node(a.value, self.root, self.preserve_comments) for a in args]
+        elif self.lc_name == 'ko-hhrm' and len(args) == 1:  # Replaced with Template:Korean but still present sometimes
+            return as_node(args[0].value.strip())
 
         mapping = MappingNode(self.raw, self.root, self.preserve_comments)
         for arg in args:
