@@ -1121,10 +1121,11 @@ def as_node(wiki_text: Union[str, WikiText], root: Optional[Root] = None, preser
             elif attr == 'get_lists':
                 lines = list(map(str.strip, wiki_text(*span).split('\n', 2)))
                 if len(lines) > 1 and not any(line.startswith(('#', '*', ';', ':')) for line in lines[1:]):
-                    log.log(9, f'Detected false-positive list span', extra={'color': 9})
+                    starts = [line[0] if line else '' for line in lines]
+                    log.log(9, f'Detected false-positive list span on {root} - {starts=}', extra={'color': 9})
                     span = next(type_spans, None)
                 elif len(lines) == 1:
-                    log.log(9, f'Detected false-positive list span', extra={'color': 9})
+                    log.log(9, f'Detected false-positive list span on {root}', extra={'color': 9})
                     span = next(type_spans, None)
                 # else:
                 #     starts = [line[0] for line in lines]
