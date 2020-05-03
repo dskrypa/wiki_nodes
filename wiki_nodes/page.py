@@ -114,16 +114,25 @@ class WikiPage(Root):
         remove the infobox from the 1st section, or any other similar elements.
         """
         try:
+            # for i, node in enumerate(self.sections.content):
             for node in self.sections.content:
                 if isinstance(node, String):
                     if not node.value.startswith('{{DISPLAYTITLE:'):
+                        # log.debug(f'Found intro in node#{i}')
                         return node
                 elif isinstance(node, Tag) and node.name == 'div' and type(node.value) is CompoundNode:
+                    # log.debug(f'Found intro in node#{i}')
                     return node.value
-                elif type(node) is CompoundNode and node.only_basic:
+                elif type(node) is CompoundNode and allowed_in_intro(node):
+                    # log.debug(f'Found intro in node#{i}')
                     return node
-                elif type(node) is CompoundNode and all(isinstance(n, (String, Link, Tag)) for n in node):
-                    return node
+                # else:
+                #     log.debug(f'The intro is not node#{i} - it is a {node.__class__.__name__}')
+                #     if type(node) is CompoundNode:
+                #         import json
+                #         from collections import Counter
+                #         types = Counter(n.__class__.__name__ for n in node)
+                #         log.debug(f' > Node contents: {json.dumps(types, sort_keys=True, indent=4)}')
         except Exception as e:
             log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
@@ -137,3 +146,7 @@ class WikiPage(Root):
         """
         links = {l for l in self.find_all(Link) if (special or not l.special) and (interwiki or not l.interwiki)}
         return set({link.title: link for link in links}.values()) if unique else links
+
+
+def allowed_in_intro(node: CompoundNode) -> bool:
+    return node.only_basic or all(n.is_basic or (isinstance(n, Tag) and n.name == 'ref') for n in node)
