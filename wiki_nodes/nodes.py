@@ -1079,6 +1079,7 @@ WTP_ACCESS_FIRST = {'Tag', 'Table', 'WikiList'}
 WTP_ATTR_TO_NODE_MAP = {
     'get_tags': Tag, 'templates': Template, 'tables': Table, 'get_lists': List, 'comments': BasicNode
 }
+# from ds_tools.output import colored
 
 
 def as_node(wiki_text: Union[str, WikiText], root: Optional[Root] = None, preserve_comments=False, strict_tags=False):
@@ -1105,30 +1106,42 @@ def as_node(wiki_text: Union[str, WikiText], root: Optional[Root] = None, preser
             values[attr] = wiki_attr_values(wiki_text, attr)
         type_spans = iter(wiki_text._subspans(wtp_type))
         span = next(type_spans, None)
-        if span and strict_tags and attr == 'tags':
-            tag = wiki_attr_values(wiki_text, attr, values)[0]
-            obj_str = tag.string
-            if tag.contents.strip():
-                if not obj_str.endswith(f'</{tag.name}>'):
-                    log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
+        if span:
+            if strict_tags and attr == 'get_tags':
+                tag = wiki_attr_values(wiki_text, attr, values)[0]
+                obj_str = tag.string
+                if tag.contents.strip():
+                    if not obj_str.endswith(f'</{tag.name}>'):
+                        log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
+                        span = next(type_spans, None)
+                else:
+                    if obj_str != f'<{tag.name}/>':     # self-closing
+                        log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
+                        span = next(type_spans, None)
+            elif attr == 'get_lists':
+                lines = list(map(str.strip, wiki_text(*span).split('\n', 2)))
+                if len(lines) > 1 and not any(line.startswith(('#', '*', ';', ':')) for line in lines[1:]):
+                    log.log(9, f'Detected false-positive list span', extra={'color': 9})
                     span = next(type_spans, None)
-            else:
-                if obj_str != f'<{tag.name}/>':     # self-closing
-                    log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
+                elif len(lines) == 1:
+                    log.log(9, f'Detected false-positive list span', extra={'color': 9})
                     span = next(type_spans, None)
+                # else:
+                #     starts = [line[0] for line in lines]
+                #     log.debug(f'Detected real list with {len(lines)}+ lines; {starts=}', extra={'color': 9})
 
         if span:
             # log.debug(f'Found {wtp_type:>8s} @ {span}')
             start = span[0]
             if first is None or first > start:
                 # if first is None:
-                #     log.debug(f'  > It was the first object found')
+                #     log.debug('  > It was the first object found')
                 # else:
-                #     log.debug(f'  > It came before the previously discovered first object')
+                #     log.debug('  > It came before the previously discovered first object')
                 first = start
                 first_attr = attr
                 if first == node_start:
-                    # log.debug(f'    > It is definitely the first object')
+                    # log.debug('    > It is definitely the first object')
                     break
 
     if first_attr:
