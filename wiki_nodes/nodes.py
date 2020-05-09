@@ -1017,7 +1017,7 @@ class Section(Node, ContainerNode):
                     if isinstance(title_node, String):
                         new_title = title_node.value
                     elif title_node.__class__ is CompoundNode and title_node.only_basic:
-                        new_title = ' '.join(str(n.value) for n in title_node)
+                        new_title = ' '.join(str(n.show if isinstance(n, Link) else n.value) for n in title_node)
 
                 if new_title:
                     if title:
