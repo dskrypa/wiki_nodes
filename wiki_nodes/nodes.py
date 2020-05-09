@@ -652,7 +652,14 @@ class Template(BasicNode, ContainerNode):
     def pformat(self, indentation=0) -> str:
         indent = ' ' * indentation
         if value := self.value:
-            value = value.pformat(indentation + 4)
+            if isinstance(value, Node):
+                value = value.pformat(indentation + 4)
+            elif isinstance(value, list):
+                inside = ' ' * (indentation + 4)
+                inner = indentation + 8
+                value = ',\n'.join(f'{inside}{v.pformat(inner)}' for v in value)
+            else:
+                value = repr(value)
             if '\n' in value:
                 return f'{indent}<{self.__class__.__name__}[{self.name!r}][\n{value}\n{indent}]>'
         return f'{indent}<{self.__class__.__name__}[{self.name!r}][{self.value!r}]>'
