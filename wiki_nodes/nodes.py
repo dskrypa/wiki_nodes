@@ -635,6 +635,7 @@ class TableSeparator:
 class Template(BasicNode, ContainerNode):
     _defaults = {'n/a': 'N/A'}
     _basic_names = {'n/a', 'small'}
+    _lang_names = {'ko-hhrm'}
 
     def __init__(self, raw: Union[str, WikiText, _Template], root: Optional['Root'] = None, preserve_comments=False):
         super().__init__(raw, root, preserve_comments)
@@ -643,8 +644,8 @@ class Template(BasicNode, ContainerNode):
                 self.raw = self.raw.templates[0]
             except IndexError as e:
                 raise ValueError('Invalid wiki template value') from e
-        self.name = self.raw.name.strip()
-        self.lc_name = self.name.lower()
+        self.name = self.raw.name.strip()                                                                   # type: str
+        self.lc_name = self.name.lower()                                                                    # type: str
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.name!r}: {self.value!r})>'
@@ -686,7 +687,7 @@ class Template(BasicNode, ContainerNode):
                     value = Link.from_title(value.value, self.root)
                 return value
             return [as_node(a.value, self.root, self.preserve_comments) for a in args]
-        elif self.lc_name == 'ko-hhrm' and len(args) == 1:  # Replaced with Template:Korean but still present sometimes
+        elif self.lc_name in self._lang_names or self.lc_name.startswith('lang-') and len(args) == 1:
             return as_node(args[0].value.strip())
 
         mapping = MappingNode(self.raw, self.root, self.preserve_comments)
