@@ -1041,6 +1041,27 @@ class Section(Node, ContainerNode):
 
         return content
 
+    def pformat(self, mode='reprs', indent=0, recurse=True):
+        formatted = []
+        if mode == 'raw':
+            formatted.append(self.raw.pformat())
+        elif mode == 'headers':
+            formatted.append(f'{" " * indent}{"=" * self.level}{self.title}{"=" * self.level}')
+            indent += 4
+        elif mode in ('reprs', 'content', 'processed'):
+            formatted.append(f'{" " * indent}{self}')
+            indent += 4
+            if mode == 'content':
+                formatted.append(self.content.pformat(indent))
+            elif mode == 'processed':
+                formatted.append(self.processed().pformat(indent))
+
+        if recurse:
+            for child in self.children.values():
+                formatted.append(child.pformat(mode, indent=indent, recurse=recurse))
+
+        return '\n'.join(formatted)
+
     def pprint(self, mode='reprs', indent=0, recurse=True):
         if mode == 'raw':
             try:
