@@ -52,6 +52,9 @@ class WikiPage(Root):
             return False
         return self._sort_key == other._sort_key
 
+    def __hash__(self):
+        return hash((self.__class__, self.site, self.title, self.raw.string))
+
     def __lt__(self, other: 'WikiPage') -> bool:
         return self._sort_key < other._sort_key
 
