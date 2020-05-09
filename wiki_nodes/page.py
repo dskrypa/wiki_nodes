@@ -110,25 +110,28 @@ class WikiPage(Root):
                 log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
 
-    @cached_property
-    def intro(self) -> Union[String, CompoundNode, None]:
+    def intro(self, strip_refs=False) -> Union[String, CompoundNode, None]:
         """
         Neither parser provides access to the 1st paragraph directly when an infobox template precedes it - need to
         remove the infobox from the 1st section, or any other similar elements.
         """
+        intro = None
         try:
             # for i, node in enumerate(self.sections.content):
             for node in self.sections.content:
                 # log.info(f'Processing node#{i}: {node.__class__.__name__}')
                 if isinstance(node, String) and not node.value.startswith('{{DISPLAYTITLE:'):
                     # log.debug(f'Found intro in node#{i}')
-                    return node
+                    intro = node
+                    break
                 elif isinstance(node, Tag) and node.name == 'div' and type(node.value) is CompoundNode:
                     # log.debug(f'Found intro in node#{i}')
-                    return node.value
+                    intro = node.value
+                    break
                 elif type(node) is CompoundNode and allowed_in_intro(node):
                     # log.debug(f'Found intro in node#{i}')
-                    return node
+                    intro = node
+                    break
                 # else:
                 #     log.debug(f'The intro is not node#{i} - it is a {node.__class__.__name__}')
                 #     if type(node) is CompoundNode:
@@ -138,7 +141,15 @@ class WikiPage(Root):
                 #         log.debug(f' > Node contents: {json.dumps(types, sort_keys=True, indent=4)}')
         except Exception as e:
             log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
-        return None
+
+        if strip_refs and intro.__class__ is CompoundNode:
+            nodes = [node for node in intro if not (isinstance(node, Tag) and node.name == 'ref')]
+            if nodes != intro.children:
+                log.debug(f'Removed {len(intro.children) - len(nodes)} ref nodes from intro for {self}')
+                # noinspection PyPropertyAccess
+                intro.children = nodes
+
+        return intro
 
     def links(self, unique=True, special=False, interwiki=False) -> Set[Link]:
         """
