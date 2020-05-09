@@ -191,7 +191,7 @@ class MappingNode(CompoundNode, MutableMapping):
         return self.children.keys()
 
     def pformat(self, indentation=0):
-        indent = (' ' * indentation)
+        indent = ' ' * indentation
         inside = indent + (' ' * 4)
         child_lines = (
             '\n'.join(inside + line for line in f'{k!r}: {v.pformat() if v is not None else None}'.splitlines())
@@ -648,6 +648,14 @@ class Template(BasicNode, ContainerNode):
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.name!r}: {self.value!r})>'
+
+    def pformat(self, indentation=0) -> str:
+        indent = ' ' * indentation
+        if value := self.value:
+            value = value.pformat(indentation + 4)
+            if '\n' in value:
+                return f'{indent}<{self.__class__.__name__}[{self.name!r}][\n{value}\n{indent}]>'
+        return f'{indent}<{self.__class__.__name__}[{self.name!r}][{self.value!r}]>'
 
     @cached_property
     def is_basic(self):
