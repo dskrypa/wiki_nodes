@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 from pathlib import Path
 from setuptools import setup
@@ -33,5 +34,6 @@ setup(
         'db_cache @ git+git://github.com/dskrypa/db_cache',
         'wikitextparser',
         'requests'
-    ]
+    ],
+    extras_require={'dev': ['pre-commit', 'ipython']},
 )
