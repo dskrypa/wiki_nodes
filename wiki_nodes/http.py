@@ -596,7 +596,7 @@ class MediaWikiClient(RequestsClient):
                 site = _futures[future]
                 try:
                     results[site] = future.result()
-                except RequestException as e:
+                except (RequestException, InvalidWikiError) as e:
                     log.error(f'Error retrieving pages from site={site}: {e}')
                     errors[site] = e
 
