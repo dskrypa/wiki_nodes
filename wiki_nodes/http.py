@@ -99,6 +99,10 @@ class MediaWikiClient(RequestsClient):
         rows = self.siteinfo['interwikimap']
         return {row['prefix']: row['url'] for row in rows}
 
+    @cached_property
+    def lc_interwiki_map(self) -> Dict[str, str]:
+        return {k.lower(): v for k, v in self.interwiki_map.items()}
+
     def interwiki_client(self, iw_map_key: str) -> Optional['MediaWikiClient']:
         if iw_map_key.startswith('w:c:'):
             community = iw_map_key.rsplit(':', 1)[-1]
@@ -107,7 +111,7 @@ class MediaWikiClient(RequestsClient):
             community = None
 
         try:
-            url = self.interwiki_map[iw_map_key]
+            url = self.interwiki_map.get(iw_map_key) or self.lc_interwiki_map[iw_map_key.lower()]
         except KeyError:
             return None
         else:
