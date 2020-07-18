@@ -2,7 +2,7 @@
 :author: Doug Skrypa
 """
 
-__all__ = ['WikiResponseError', 'PageMissingError']
+__all__ = ['WikiResponseError', 'PageMissingError', 'InvalidWikiError']
 
 
 class WikiResponseError(Exception):
@@ -20,3 +20,7 @@ class PageMissingError(Exception):
         if self.extra:
             return f'No page found for {self.title!r} in {self.host} {self.extra}'
         return f'No page found for {self.title!r} in {self.host}'
+
+
+class InvalidWikiError(Exception):
+    """Exception to be raised if the requested site does not exist"""

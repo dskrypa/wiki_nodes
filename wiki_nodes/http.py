@@ -12,15 +12,16 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from distutils.version import LooseVersion
+from json import JSONDecodeError
 from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping, Set
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qs
 
-from requests import RequestException
+from requests import RequestException, Response
 
 from db_cache import TTLDBCache, DBCache
 from requests_client import RequestsClient
 from .compat import cached_property
-from .exceptions import WikiResponseError, PageMissingError
+from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
 from .page import WikiPage
 from .utils import partitioned
 
@@ -74,8 +75,15 @@ class MediaWikiClient(RequestsClient):
             return self._siteinfo_cache[self.host]
         except KeyError:
             params = {'action': 'query', 'format': 'json', 'meta': 'siteinfo', 'siprop': 'general|interwikimap'}
-            resp = self.get('api.php', params=params)
-            self._siteinfo_cache[self.host] = siteinfo = resp.json()['query']
+            resp = self.get('api.php', params=params)  # type: Response
+            try:
+                self._siteinfo_cache[self.host] = siteinfo = resp.json()['query']
+            except JSONDecodeError as e:
+                site = None
+                if 'Not_a_valid_community' in resp.url:
+                    site = parse_qs(urlparse(resp.url).params).get('from')
+                site = site or self.host
+                raise InvalidWikiError(f'Invalid site: {site!r}')
             return siteinfo
 
     @cached_property
