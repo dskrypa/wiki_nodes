@@ -103,6 +103,12 @@ class MediaWikiClient(RequestsClient):
     def lc_interwiki_map(self) -> Dict[str, str]:
         return {k.lower(): v for k, v in self.interwiki_map.items()}
 
+    @cached_property
+    def _merged_interwiki_map(self):
+        iw_map = self.interwiki_map.copy()
+        iw_map.update(self.lc_interwiki_map)
+        return iw_map
+
     def interwiki_client(self, iw_map_key: str) -> Optional['MediaWikiClient']:
         if iw_map_key.startswith('w:c:'):
             community = iw_map_key.rsplit(':', 1)[-1]
@@ -533,7 +539,8 @@ class MediaWikiClient(RequestsClient):
         raw_pages = self.query_pages(titles, search=search, no_cache=no_cache)
         pages = {
             result_title: WikiPage(
-                data['title'], self.host, data['wikitext'], data['categories'], preserve_comments, self.interwiki_map
+                data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
+                self._merged_interwiki_map
             )
             for result_title, data in raw_pages.items()
         }   # The result_title may have redirected to the actual title
@@ -542,7 +549,8 @@ class MediaWikiClient(RequestsClient):
     def get_page(self, title: str, preserve_comments=False, search=False, no_cache=False) -> WikiPage:
         data = self.query_page(title, search=search, no_cache=no_cache)
         page = WikiPage(
-            data['title'], self.host, data['wikitext'], data['categories'], preserve_comments, self.interwiki_map
+            data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
+            self._merged_interwiki_map
         )
         return page
 
