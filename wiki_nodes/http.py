@@ -443,7 +443,9 @@ class MediaWikiClient(RequestsClient):
 
         return no_data
 
-    def query_pages(self, titles: Union[str, Iterable[str]], search=False, no_cache=False) -> PageData:
+    def query_pages(
+        self, titles: Union[str, Iterable[str]], search=False, no_cache=False, gsrwhat='nearmatch'
+    ) -> PageData:
         """
         Get the full page content and the following additional data about each of the provided page titles:\n
           - categories
@@ -461,6 +463,7 @@ class MediaWikiClient(RequestsClient):
         :param bool search: Whether the provided titles should also be searched for, in case there is not an exact
           match.  This does not seem to work when multiple titles are provided as the search term.
         :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
+        :param str gsrwhat: The search type to use when search is True
         :return dict: Mapping of {title: dict(page data)}
         """
         pages, need = self._cached_and_needed(titles, no_cache)
@@ -473,7 +476,7 @@ class MediaWikiClient(RequestsClient):
                 log.debug(f'Re-attempting retrieval of pages via searches: {sorted(no_data)}')
                 _no_data, no_data = no_data, []
                 for title in _no_data:
-                    kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': 'nearmatch'}
+                    kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': gsrwhat}
                     resp = self.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
                     no_data.extend(self._process_pages_resp(resp, need, norm_to_orig, pages))
 
@@ -491,8 +494,8 @@ class MediaWikiClient(RequestsClient):
 
         return pages
 
-    def query_page(self, title: str, search=False, no_cache=False) -> Dict[str, Any]:
-        results = self.query_pages(title, search=search, no_cache=no_cache)
+    def query_page(self, title: str, search=False, no_cache=False, gsrwhat='nearmatch') -> Dict[str, Any]:
+        results = self.query_pages(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         if not results:
             raise PageMissingError(title, self.host)
         try:
@@ -534,9 +537,14 @@ class MediaWikiClient(RequestsClient):
         return results
 
     def get_pages(
-            self, titles: Union[str, Iterable[str]], preserve_comments=False, search=False, no_cache=False
+        self,
+        titles: Union[str, Iterable[str]],
+        preserve_comments=False,
+        search=False,
+        no_cache=False,
+        gsrwhat='nearmatch',
     ) -> Dict[str, WikiPage]:
-        raw_pages = self.query_pages(titles, search=search, no_cache=no_cache)
+        raw_pages = self.query_pages(titles, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         pages = {
             result_title: WikiPage(
                 data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
@@ -546,8 +554,10 @@ class MediaWikiClient(RequestsClient):
         }   # The result_title may have redirected to the actual title
         return pages
 
-    def get_page(self, title: str, preserve_comments=False, search=False, no_cache=False) -> WikiPage:
-        data = self.query_page(title, search=search, no_cache=no_cache)
+    def get_page(
+        self, title: str, preserve_comments=False, search=False, no_cache=False, gsrwhat='nearmatch'
+    ) -> WikiPage:
+        data = self.query_page(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         page = WikiPage(
             data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
             self._merged_interwiki_map
@@ -561,7 +571,13 @@ class MediaWikiClient(RequestsClient):
 
     @classmethod
     def get_multi_site_page(
-            cls, title: str, sites: Iterable[str], preserve_comments=False, search=False, no_cache=False
+        cls,
+        title: str,
+        sites: Iterable[str],
+        preserve_comments=False,
+        search=False,
+        no_cache=False,
+        gsrwhat='nearmatch',
     ) -> Tuple[Dict[str, WikiPage], Dict[str, Exception]]:
         """
         :param str title: A page title
@@ -569,12 +585,13 @@ class MediaWikiClient(RequestsClient):
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
         :param bool search: Whether the provided title should also be searched for, in case there is not an exact match.
         :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
+        :param str gsrwhat: The search type to use when search is True
         :return tuple: Tuple containing mappings of {site: WikiPage}, {site: errors}
         """
         clients = [cls(site, nopath=True) for site in sites]
         with ThreadPoolExecutor(max_workers=max(1, len(clients))) as executor:
             _futures = {
-                executor.submit(client.get_page, title, preserve_comments, search, no_cache): client.host
+                executor.submit(client.get_page, title, preserve_comments, search, no_cache, gsrwhat): client.host
                 for client in clients
             }
             results = {}
@@ -591,14 +608,19 @@ class MediaWikiClient(RequestsClient):
 
     @classmethod
     def get_multi_site_pages(
-            cls, site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]], preserve_comments=False,
-            search=False, no_cache=False
+        cls,
+        site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]],
+        preserve_comments=False,
+        search=False,
+        no_cache=False,
+        gsrwhat='nearmatch',
     ) -> Tuple[Dict[str, Dict[str, WikiPage]], Dict[str, Exception]]:
         """
         :param dict site_title_map: Mapping of {site|MediaWikiClient: list(titles)}
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
         :param bool search: Whether the provided title should also be searched for, in case there is not an exact match.
         :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
+        :param str gsrwhat: The search type to use when search is True
         :return tuple: Tuple containing mappings of {site: results}, {site: errors}
         """
         client_title_map = {
@@ -607,7 +629,7 @@ class MediaWikiClient(RequestsClient):
         }
         with ThreadPoolExecutor(max_workers=max(1, len(client_title_map))) as executor:
             _futures = {
-                executor.submit(client.get_pages, titles, preserve_comments, search, no_cache): client.host
+                executor.submit(client.get_pages, titles, preserve_comments, search, no_cache, gsrwhat): client.host
                 for client, titles in client_title_map.items()
             }
             results = {}
