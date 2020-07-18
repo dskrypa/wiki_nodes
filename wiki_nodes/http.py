@@ -409,7 +409,11 @@ class MediaWikiClient(RequestsClient):
                     try:
                         pages[norm_to_orig.pop(redirected_from)] = entry
                     except KeyError:
-                        log.debug(f'Unexpected KeyError for key={redirected_from!r} in norm_to_orig={norm_to_orig}')
+                        lc_redirected_from = redirected_from.lower()
+                        if lc_redirected_from in norm_to_orig:
+                            pages[norm_to_orig.pop(lc_redirected_from)] = entry
+                        else:
+                            log.debug(f'Unexpected KeyError for key={redirected_from!r} in norm_to_orig={norm_to_orig}')
                 else:
                     norm_title = normalize(title)
                     lc_title = norm_title.lower()
