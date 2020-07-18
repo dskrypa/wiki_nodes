@@ -404,7 +404,7 @@ class MediaWikiClient(RequestsClient):
         }
         return entry
 
-    def _process_pages_resp(self, resp, need, norm_to_orig, pages):
+    def _process_pages_resp(self, resp, need, norm_to_orig, pages, allow_unexpected=False):
         no_data = []
         qlog.debug(f'Found {len(resp)} pages: [{", ".join(map(repr, sorted(resp)))}]')
         for title, data in resp.items():
@@ -434,6 +434,8 @@ class MediaWikiClient(RequestsClient):
                         elif lc_title in norm_to_orig:
                             self._store_normalized(lc_title, title, 'quiet redirect')
                             pages[norm_to_orig.pop(lc_title)] = entry
+                        elif allow_unexpected:
+                            pages[title] = entry
                         else:
                             fmt = 'Received page from {} for title={!r} that did not match any requested title'
                             log.debug(fmt.format(self.host, title))
@@ -478,7 +480,7 @@ class MediaWikiClient(RequestsClient):
                 for title in _no_data:
                     kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': gsrwhat}
                     resp = self.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
-                    no_data.extend(self._process_pages_resp(resp, need, norm_to_orig, pages))
+                    no_data.extend(self._process_pages_resp(resp, need, norm_to_orig, pages, gsrwhat == 'text'))
 
             for title in no_data:
                 qlog.debug(f'No page was found from {self.host} for title={title!r} - caching null page')
@@ -522,7 +524,7 @@ class MediaWikiClient(RequestsClient):
         :param int offset: The number of results to skip when requesting additional results for the given query
         :return dict: The parsed response
         """
-        lc_query = query.lower()
+        lc_query = f'{search_type}::{query.lower()}'
         try:
             results = self._search_cache[lc_query]
         except KeyError:
