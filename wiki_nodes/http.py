@@ -60,6 +60,7 @@ class MediaWikiClient(RequestsClient):
             if MediaWikiClient._siteinfo_cache is None:
                 MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
             self._page_cache = TTLDBCache(f'{self.host}_pages', cache_subdir='wiki', ttl=ttl)
+            self._search_title_cache = TTLDBCache(f'{self.host}_search_titles', cache_subdir='wiki', ttl=ttl)
             self._search_cache = TTLDBCache(f'{self.host}_searches', cache_subdir='wiki', ttl=ttl)
             # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
             self._norm_title_cache = DBCache(f'{self.host}_normalized_titles', cache_subdir='wiki', time_fmt='%Y')
@@ -379,17 +380,19 @@ class MediaWikiClient(RequestsClient):
             if no_cache:
                 need.add(title)
             else:
-                try:
-                    page = self._page_cache[norm_title]
-                except KeyError:
-                    need.add(title)
-                    qlog.debug(f'No content was found in {self.host} page cache for title={norm_title!r}')
-                else:
-                    if page:
-                        pages[title] = page
-                        qlog.debug(f'Found content in {self.host} page cache for title={norm_title!r}')
+                for _title in self._search_title_cache.get(norm_title, (norm_title,)):
+                    key = title if _title == norm_title else _title
+                    try:
+                        page = self._page_cache[_title]
+                    except KeyError:
+                        need.add(key)
+                        qlog.debug(f'No content was found in {self.host} page cache for title={norm_title!r}')
                     else:
-                        qlog.debug(f'Found empty content in {self.host} page cache for title={norm_title!r}')
+                        if page:
+                            pages[key] = page
+                            qlog.debug(f'Found content in {self.host} page cache for title={norm_title!r}')
+                        else:
+                            qlog.debug(f'Found empty content in {self.host} page cache for title={norm_title!r}')
         return pages, need
 
     def _store_normalized(self, orig, normalized, reason):
@@ -403,6 +406,9 @@ class MediaWikiClient(RequestsClient):
             'wikitext': revisions[0] if revisions else None
         }
         return entry
+
+    def _cache_search_pages(self, term, titles):
+        self._search_title_cache[term] = list(titles)
 
     def _process_pages_resp(self, resp, need, norm_to_orig, pages, allow_unexpected=False):
         no_data = []
@@ -480,6 +486,7 @@ class MediaWikiClient(RequestsClient):
                 for title in _no_data:
                     kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': gsrwhat}
                     resp = self.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
+                    self._cache_search_pages(title, resp)
                     no_data.extend(self._process_pages_resp(resp, need, norm_to_orig, pages, gsrwhat == 'text'))
 
             for title in no_data:
