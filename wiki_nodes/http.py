@@ -412,10 +412,14 @@ class MediaWikiClient(RequestsClient):
                         log.debug(f'Unexpected KeyError for key={redirected_from!r} in norm_to_orig={norm_to_orig}')
                 else:
                     norm_title = normalize(title)
+                    lc_title = norm_title.lower()
                     if title not in need:  # Not all sites indicate when a redirect happened
                         if norm_title in norm_to_orig:
                             self._store_normalized(norm_title, title, 'quiet redirect')
                             pages[norm_to_orig.pop(norm_title)] = entry
+                        elif lc_title in norm_to_orig:
+                            self._store_normalized(lc_title, title, 'quiet redirect')
+                            pages[norm_to_orig.pop(lc_title)] = entry
                         else:
                             fmt = 'Received page from {} for title={!r} that did not match any requested title'
                             log.debug(fmt.format(self.host, title))
