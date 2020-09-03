@@ -413,6 +413,7 @@ class MediaWikiClient(RequestsClient):
     def _process_pages_resp(self, resp, need, norm_to_orig, pages, allow_unexpected=False):
         no_data = []
         qlog.debug(f'Found {len(resp)} pages: [{", ".join(map(repr, sorted(resp)))}]')
+        lc_norm_to_norm = None
         for title, data in resp.items():
             qlog.debug(f'Processing page with title={title!r}, data: {", ".join(sorted(data))}')
             if data.get('pageid') is None:  # The page does not exist
@@ -443,8 +444,15 @@ class MediaWikiClient(RequestsClient):
                         elif allow_unexpected:
                             pages[title] = entry
                         else:
-                            fmt = 'Received page from {} for title={!r} that did not match any requested title'
-                            log.debug(fmt.format(self.host, title))
+                            if lc_norm_to_norm is None:
+                                lc_norm_to_norm = {k.lower(): k for k in norm_to_orig}
+                            if lc_title in lc_norm_to_norm:
+                                norm_title = lc_norm_to_norm[lc_title]
+                                self._store_normalized(norm_title, title, 'quiet redirect')
+                                pages[norm_to_orig.pop(norm_title)] = entry
+                            else:
+                                fmt = 'Received page from {} for title={!r} that did not match any requested title'
+                                log.debug(fmt.format(self.host, title))
                     else:
                         # Exact title match
                         pages[norm_to_orig.pop(norm_title)] = entry
