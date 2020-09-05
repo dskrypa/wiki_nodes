@@ -739,7 +739,7 @@ class Root(Node):
             interwiki_map: Optional[Mapping[str, str]] = None
     ):
         if isinstance(page_text, str):
-            page_text = WikiText(page_text.replace('\xa0', ' '))
+            page_text = WikiText(page_text.replace('\xa0', ' ').replace('\u200b', ''))
         super().__init__(page_text, None, preserve_comments)
         self.site = site                                        # type: Optional[str]
         self._interwiki_map = interwiki_map                     # type: Optional[Mapping[str, str]]
