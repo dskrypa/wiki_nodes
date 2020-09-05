@@ -115,6 +115,7 @@ class WikiPage(Root):
         Neither parser provides access to the 1st paragraph directly when an infobox template precedes it - need to
         remove the infobox from the 1st section, or any other similar elements.
         """
+        error = False
         intro = None
         try:
             # for i, node in enumerate(self.sections.content):
@@ -140,7 +141,20 @@ class WikiPage(Root):
                 #         types = Counter(n.__class__.__name__ for n in node)
                 #         log.debug(f' > Node contents: {json.dumps(types, sort_keys=True, indent=4)}')
         except Exception as e:
+            error = True
             log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
+
+        if intro is None and not error and self.infobox:
+            found_infobox = False
+            try:
+                for node in self.sections.content:
+                    if node is self.infobox:
+                        found_infobox = True
+                    elif found_infobox and type(node) is CompoundNode and starts_with_basic(node):
+                        intro = node
+                        break
+            except Exception as e:
+                log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
 
         if strip_refs and intro.__class__ is CompoundNode:
             nodes = [node for node in intro if not (isinstance(node, Tag) and node.name == 'ref')]
@@ -164,3 +178,9 @@ class WikiPage(Root):
 
 def allowed_in_intro(node: CompoundNode) -> bool:
     return node.only_basic or all(n.is_basic or (isinstance(n, Tag) and n.name == 'ref') for n in node)
+
+
+def starts_with_basic(node: CompoundNode) -> bool:
+    if first := next(iter(node), None):
+        return first.is_basic
+    return False
