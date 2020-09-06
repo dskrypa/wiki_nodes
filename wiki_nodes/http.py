@@ -416,6 +416,7 @@ class MediaWikiClient(RequestsClient):
         lc_norm_to_norm = None
         for title, data in resp.items():
             qlog.debug(f'Processing page with title={title!r}, data: {", ".join(sorted(data))}')
+            # qlog.debug(f'Processing page with title={title!r}, data: {data}')
             if data.get('pageid') is None:  # The page does not exist
                 no_data.append(title)
             else:
@@ -485,7 +486,8 @@ class MediaWikiClient(RequestsClient):
         pages, need = self._cached_and_needed(titles, no_cache)
         if need:
             norm_to_orig = {normalize(title): title for title in need}  # Return the exact titles that were requested
-            resp = self.query(titles=need, rvprop='content', prop=['revisions', 'categories'])
+            unquoted_need = set(map(unquote, need))
+            resp = self.query(titles=unquoted_need, rvprop='content', prop=['revisions', 'categories'])
             no_data = self._process_pages_resp(resp, need, norm_to_orig, pages)
 
             if no_data and search:
@@ -663,7 +665,7 @@ class MediaWikiClient(RequestsClient):
 
 
 def normalize(title: str) -> str:
-    return title.replace('_', ' ').strip()
+    return unquote(title.replace('_', ' ').strip())
 
 
 if __name__ == '__main__':
