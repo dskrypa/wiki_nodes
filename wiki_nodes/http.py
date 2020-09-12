@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from distutils.version import LooseVersion
 from json import JSONDecodeError
-from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping, Set
+from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping, Set, List
 from urllib.parse import urlparse, unquote, parse_qs
 
 from requests import RequestException, Response
@@ -667,6 +667,27 @@ class MediaWikiClient(RequestsClient):
                     errors[site] = e
 
             return results, errors
+
+    def get_page_image_titles(self, titles: Union[str, Iterable[str]]) -> List[str]:
+        resp = self.query(prop='images', titles=titles)
+        img_titles = []
+        for data in resp.values():
+            for image in data.get('images', []):
+                img_titles.append(image['title'])
+        return img_titles
+
+    def get_image_urls(self, titles: Union[str, Iterable[str]]) -> Dict[str, str]:
+        resp = self.query(prop='imageinfo', iiprop='url', titles=titles)
+        return {title: data['imageinfo'][0]['url'] for title, data in resp.items()}
+
+    def get_image(self, title_or_url: str):
+        if URL_MATCH(title_or_url):
+            url = title_or_url
+        else:
+            url = self.get_image_urls(title_or_url)[title_or_url]
+
+        resp = self.session.get(url)
+        return resp.content
 
 
 def normalize(title: str) -> str:
