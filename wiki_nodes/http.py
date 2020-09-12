@@ -680,7 +680,7 @@ class MediaWikiClient(RequestsClient):
         resp = self.query(prop='imageinfo', iiprop='url', titles=titles)
         return {title: data['imageinfo'][0]['url'] for title, data in resp.items()}
 
-    def get_image(self, title_or_url: str):
+    def get_image(self, title_or_url: str) -> bytes:
         if URL_MATCH(title_or_url):
             url = title_or_url
         else:
