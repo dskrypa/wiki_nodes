@@ -5,20 +5,21 @@ requests.
 :author: Doug Skrypa
 """
 
-import json
 import logging
 import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from distutils.version import LooseVersion
-from json import JSONDecodeError
+from json import JSONDecodeError, dumps
+from pathlib import Path
 from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping, Set, List
 from urllib.parse import urlparse, unquote, parse_qs
 
 from requests import RequestException, Response
 
 from db_cache import TTLDBCache, DBCache
+from db_cache.utils import get_user_cache_dir
 from requests_client import RequestsClient
 from .compat import cached_property
 from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
@@ -30,6 +31,7 @@ log = logging.getLogger(__name__)
 qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
+FILE_NAME_MATCH = re.compile(r'.*\.\w{3,4}$').match
 PageData = Dict[str, Dict[str, Any]]
 
 
@@ -64,6 +66,8 @@ class MediaWikiClient(RequestsClient):
             self._search_cache = TTLDBCache(f'{self.host}_searches', cache_subdir='wiki', ttl=ttl)
             # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
             self._norm_title_cache = DBCache(f'{self.host}_normalized_titles', cache_subdir='wiki', time_fmt='%Y')
+            self._misc_cache = TTLDBCache(f'{self.host}_misc', cache_subdir='wiki', ttl=ttl)
+            self._image_cache_dir = Path(get_user_cache_dir(f'wiki/images_{self.host}'))
             self.__initialized = True
 
     def __repr__(self):
@@ -249,13 +253,13 @@ class MediaWikiClient(RequestsClient):
 
     def _parse_query(self, response: Mapping[str, Any], url: str) -> Tuple[Dict[str, Dict[str, Any]], Any, Any]:
         if 'query' not in response and 'error' in response:
-            raise WikiResponseError(json.dumps(response['error']))
+            raise WikiResponseError(dumps(response['error']))
 
         try:
             results = response['query']
         except KeyError:
             log.debug(f'Response from {url} contained no \'query\' key; found: {", ".join(response)}')
-            # log.debug(f'Complete response: {json.dumps(response, sort_keys=True, indent=4)}')
+            # log.debug(f'Complete response: {dumps(response, sort_keys=True, indent=4)}')
             return {}, None, None
         except TypeError:
             if not response:
@@ -297,7 +301,7 @@ class MediaWikiClient(RequestsClient):
             title = page['title']
             qlog.debug(f'Processing page with title={title!r}, keys: {", ".join(sorted(page))}')
             # if 'revisions' not in page:
-            #     qlog.debug(f' > Content: {json.dumps(page, sort_keys=True, indent=4)}')
+            #     qlog.debug(f' > Content: {dumps(page, sort_keys=True, indent=4)}')
             content = parsed[title] = {'redirected_from': redirects.get(title)}
             for key, val in page.items():
                 if key == 'revisions':
@@ -532,7 +536,7 @@ class MediaWikiClient(RequestsClient):
         return resp
 
     def search(
-            self, query: str, search_type: str = 'nearmatch', limit: int = 10, offset: Optional[int] = None
+        self, query: str, search_type: str = 'nearmatch', limit: int = 10, offset: Optional[int] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Search for pages that match the given query.
@@ -668,30 +672,93 @@ class MediaWikiClient(RequestsClient):
 
             return results, errors
 
-    def get_page_image_titles(self, titles: Union[str, Iterable[str]]) -> List[str]:
-        resp = self.query(prop='images', titles=titles)
-        img_titles = []
-        for data in resp.values():
-            for image in data.get('images', []):
-                img_titles.append(image['title'])
+    def _get_misc_cached(self, group: str, titles: Union[str, Iterable[str]]) -> Tuple[List[str], Dict[str, Any]]:
+        titles = [titles] if isinstance(titles, str) else titles
+        needed = []
+        found = {}
+        for title in titles:
+            try:
+                found[title] = self._misc_cache[(group, normalize(title))]
+            except KeyError:
+                needed.append(title)
+        # log.debug(f'Found for {group=} cached={found.keys()} {needed=}')
+        return needed, found
+
+    def _store_misc_cached(self, group: str, data: Mapping[str, Any]):
+        # log.debug(f'Storing for {group=} keys={data.keys()}')
+        self._misc_cache.update({(group, normalize(title)): value for title, value in data.items()})
+
+    def get_page_image_titles(self, titles: Union[str, Iterable[str]]) -> Dict[str, List[str]]:
+        needed, img_titles = self._get_misc_cached('images', titles)
+        if needed:
+            resp = self.query(prop='images', titles=titles)
+            results = {title: [image['title'] for image in data.get('images', [])] for title, data in resp.items()}
+            self._store_misc_cached('images', results)
+            img_titles.update(results)
         return img_titles
 
     def get_image_urls(self, titles: Union[str, Iterable[str]]) -> Dict[str, str]:
-        resp = self.query(prop='imageinfo', iiprop='url', titles=titles)
-        return {title: data['imageinfo'][0]['url'] for title, data in resp.items()}
+        needed, urls = self._get_misc_cached('imageinfo', titles)
+        if needed:
+            resp = self.query(prop='imageinfo', iiprop='url', titles=needed)
+            resp_urls = {title: data['imageinfo'][0]['url'] for title, data in resp.items()}
+            self._store_misc_cached('imageinfo', resp_urls)
+            urls.update(resp_urls)
+        return urls
 
     def get_image(self, title_or_url: str) -> bytes:
-        if URL_MATCH(title_or_url):
-            url = title_or_url
-        else:
-            url = self.get_image_urls(title_or_url)[title_or_url]
+        try:
+            name = _image_name(title_or_url)
+        except ValueError as e:
+            log.debug(e)
+            name = None
 
-        resp = self.session.get(url)
-        return resp.content
+        try:
+            return self._get_cached_image(name)
+        except KeyError:
+            pass
+
+        url = title_or_url if URL_MATCH(title_or_url) else self.get_image_urls(title_or_url)[title_or_url]
+        data = self.session.get(url).content
+        self._save_image(name, data)
+        return data
+
+    def _get_cached_image(self, name: Optional[str]) -> bytes:
+        if name:
+            path = self._image_cache_dir.joinpath(name)
+            if path.exists():
+                log.debug(f'Found cached image for {name=}')
+                with path.open('rb') as f:
+                    return f.read()
+        raise KeyError(name)
+
+    def _save_image(self, name: Optional[str], data: bytes):
+        if name:
+            path = self._image_cache_dir.joinpath(name)
+            with path.open('wb') as f:
+                f.write(data)
 
 
 def normalize(title: str) -> str:
     return unquote(title.replace('_', ' ').strip())
+
+
+def _image_name(title_or_url: str) -> str:
+    if URL_MATCH(title_or_url):
+        path = urlparse(title_or_url).path
+        while path and not FILE_NAME_MATCH(path):
+            path = path.rsplit('/', 1)[0]
+        if FILE_NAME_MATCH(path):
+            title = path.rsplit('/', 1)[-1]
+        else:
+            raise ValueError(f'Unable to determine filename from {title_or_url=}')
+    else:
+        title = title_or_url
+
+    if title.lower().startswith('file:'):
+        title = title.split(':', 1)[1]
+
+    return title
 
 
 if __name__ == '__main__':

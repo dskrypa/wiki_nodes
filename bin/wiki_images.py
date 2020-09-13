@@ -9,6 +9,7 @@ import _venv  # This will activate the venv, if it exists and is not already act
 
 import logging
 from argparse import ArgumentParser
+from itertools import chain
 
 sys.path.insert(0, PROJECT_ROOT.as_posix())
 from wiki_nodes.__version__ import __author_email__, __version__
@@ -36,8 +37,8 @@ def main():
         raise ValueError('The output argument must be a directory')
 
     client = MediaWikiClient(args.url, nopath=True)
-    image_titles = client.get_page_image_titles(client.article_url_to_title(args.url))
-    for title, url in client.get_image_urls(image_titles).items():
+    title_image_titles_map = client.get_page_image_titles(client.article_url_to_title(args.url))
+    for title, url in client.get_image_urls(chain.from_iterable(title_image_titles_map.values())).items():
         out_file = out_dir.joinpath(title.split(':', 1)[1])
         data = client.get_image(url)
         log.info(f'Saving {out_file}')
