@@ -10,12 +10,15 @@ Notes:\n
 """
 
 import logging
-from typing import Optional, Union, Iterable, Set, Mapping
+from typing import TYPE_CHECKING, Optional, Union, Iterable, Set, Mapping
 
 from wikitextparser import WikiText
 
 from .compat import cached_property
 from .nodes import Root, Template, String, CompoundNode, Tag, Link
+
+if TYPE_CHECKING:
+    from .http import MediaWikiClient
 
 __all__ = ['WikiPage']
 log = logging.getLogger(__name__)
@@ -25,8 +28,14 @@ class WikiPage(Root):
     _ignore_category_prefixes = ()
 
     def __init__(
-            self, title: str, site: Optional[str], content: Union[str, WikiText], categories: Iterable[str],
-            preserve_comments=False, interwiki_map: Optional[Mapping[str, str]] = None
+        self,
+        title: str,
+        site: Optional[str],
+        content: Union[str, WikiText],
+        categories: Iterable[str],
+        preserve_comments: bool = False,
+        interwiki_map: Optional[Mapping[str, str]] = None,
+        client: Optional['MediaWikiClient'] = None,
     ):
         """
         :param str title: The page title
@@ -35,10 +44,12 @@ class WikiPage(Root):
         :param iterable categories: This page's categories
         :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
         :param dict interwiki_map: Mapping of interwiki link prefix to wiki URL
+        :param client: The MediaWikiClient from which this page originated
         """
         super().__init__(content, site, preserve_comments=preserve_comments, interwiki_map=interwiki_map)
         self.title = title
         self._categories = categories
+        self._client = client
 
     def __repr__(self):
         return f'<{type(self).__name__}[{self.title!r} @ {self.site}]>'
@@ -90,6 +101,12 @@ class WikiPage(Root):
     @cached_property
     def as_link(self) -> Link:
         return Link.from_title(self.title, self)
+
+    @cached_property
+    def url(self):
+        if self._client is not None:
+            return self._client.url_for_article(self.title)
+        raise AttributeError(f'Unable to determine URL when not initialized via MediaWikiClient')
 
     @cached_property
     def infobox(self) -> Optional[Template]:

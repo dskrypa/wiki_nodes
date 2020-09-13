@@ -142,6 +142,9 @@ class MediaWikiClient(RequestsClient):
             title += '?'
         return title
 
+    def url_for_article(self, title: str) -> str:
+        return self.url_for(self.article_path_prefix + title.replace(' ', '_'))
+
     def _update_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Include useful default parameters, and handle conversion of lists/tuples/sets to pipe-delimited strings."""
         params['format'] = 'json'
@@ -576,7 +579,7 @@ class MediaWikiClient(RequestsClient):
         pages = {
             result_title: WikiPage(
                 data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
-                self._merged_interwiki_map
+                self._merged_interwiki_map, self
             )
             for result_title, data in raw_pages.items()
         }   # The result_title may have redirected to the actual title
@@ -588,7 +591,7 @@ class MediaWikiClient(RequestsClient):
         data = self.query_page(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         page = WikiPage(
             data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
-            self._merged_interwiki_map
+            self._merged_interwiki_map, self
         )
         return page
 
