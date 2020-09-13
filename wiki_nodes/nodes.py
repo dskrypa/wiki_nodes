@@ -735,8 +735,11 @@ class Template(BasicNode, ContainerNode):
 class Root(Node):
     # Children = sections
     def __init__(
-            self, page_text: Union[str, WikiText], site: Optional[str] = None, preserve_comments=False,
-            interwiki_map: Optional[Mapping[str, str]] = None
+        self,
+        page_text: Union[str, WikiText],
+        site: Optional[str] = None,
+        preserve_comments: bool = False,
+        interwiki_map: Optional[Mapping[str, str]] = None,
     ):
         if isinstance(page_text, str):
             page_text = WikiText(page_text.replace('\xa0', ' ').replace('\u200b', ''))
@@ -872,8 +875,12 @@ class Section(Node, ContainerNode):
         return as_node(content, self.root, self.preserve_comments)    # chop off the header
 
     def processed(
-            self, convert_maps=True, fix_dl_last_none=True, fix_nested_dl_ul_ol=True, merge_maps=True,
-            fix_dl_key_as_header=True
+        self,
+        convert_maps=True,
+        fix_dl_last_none=True,
+        fix_nested_dl_ul_ol=True,
+        merge_maps=True,
+        fix_dl_key_as_header=True,
     ):
         """
         The content of this section, processed to work around various issues.
