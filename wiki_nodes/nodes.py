@@ -234,12 +234,24 @@ class Tag(BasicNode, ContainerNode):
     def value(self):
         if self.name == 'nowiki':
             return String(self.raw.contents.strip(), self.root)
-        return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
+        elif self.name == 'gallery':
+            links = []
+            for line in self.raw.contents.strip().splitlines():
+                try:
+                    title, text = line.rsplit('|', 1)
+                except (TypeError, ValueError):
+                    title, text = line, None
+                links.append(
+                    Link.from_title(title if title.lower().startswith('file:') else f'File:{title}', self.root, text)
+                )
+            return links
+        else:
+            return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
 
     @property
     def is_basic(self):
         if (value := self.value) is not None:
-            return value.is_basic
+            return not isinstance(value, Node) or value.is_basic
         return True
 
     def find_all(self, node_cls: Type[N], recurse=False, **kwargs) -> Iterator[N]:
@@ -693,7 +705,13 @@ class Template(BasicNode, ContainerNode):
         mapping = MappingNode(self.raw, self.root, self.preserve_comments)
         for arg in args:
             key = strip_style(arg.name)
-            mapping[key] = as_node(arg.value.strip(), self.root, self.preserve_comments, strict_tags=True)
+            mapping[key] = node = as_node(arg.value.strip(), self.root, self.preserve_comments, strict_tags=True)
+            # log.debug(f'[{self.lc_name}] Processing {key=} {node=}')
+            if key == 'image' and self.lc_name.startswith('infobox') and isinstance(node, String) and node:
+                mapping[key] = Link.from_title(
+                    node.value if node.value.lower().startswith('file:') else f'File:{node.value}', self.root
+                )
+
         return mapping
 
     @cached_property
