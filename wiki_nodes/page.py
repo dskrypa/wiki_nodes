@@ -10,11 +10,11 @@ Notes:\n
 """
 
 import logging
+from functools import cached_property
 from typing import TYPE_CHECKING, Optional, Union, Iterable, Set, Mapping
 
 from wikitextparser import WikiText
 
-from .compat import cached_property
 from .nodes import Root, Template, String, CompoundNode, Tag, Link
 
 if TYPE_CHECKING:

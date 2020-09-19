@@ -50,7 +50,8 @@ Example usage::
 :author: Doug Skrypa
 """
 
-from .exceptions import *
-from .http import *
-from .nodes import *
-from .page import *
+from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
+from .http import MediaWikiClient
+from .nodes import Node, BasicNode, CompoundNode, MappingNode, Tag, String, Link, ListEntry, List, Table
+from .nodes import Template, Root, Section, as_node, extract_links, TableSeparator, N, AnyNode
+from .page import WikiPage

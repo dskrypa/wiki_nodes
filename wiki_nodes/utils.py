@@ -2,15 +2,10 @@
 :author: Doug Skrypa
 """
 
-import logging
 import re
 from collections import UserDict
-from contextlib import suppress
-
-from .compat import cached_property
 
 __all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap']
-log = logging.getLogger(__name__)
 
 
 def strip_style(text: str, strip=True) -> str:
@@ -59,6 +54,7 @@ def partitioned(seq, n):
 class ClearableCachedPropertyMixin:
     @classmethod
     def _cached_properties(cls):
+        from functools import cached_property
         cached_properties = {}
         for clz in cls.mro():
             if clz == cls:
@@ -66,15 +62,19 @@ class ClearableCachedPropertyMixin:
                     if isinstance(v, cached_property):
                         cached_properties[k] = v
             else:
-                with suppress(AttributeError):
+                try:
                     # noinspection PyUnresolvedReferences
                     cached_properties.update(clz._cached_properties())
+                except AttributeError:
+                    pass
         return cached_properties
 
     def clear_cached_properties(self):
         for prop in self._cached_properties():
-            with suppress(KeyError):
+            try:
                 del self.__dict__[prop]
+            except KeyError:
+                pass
 
 
 class IntervalCoverageMap(UserDict):

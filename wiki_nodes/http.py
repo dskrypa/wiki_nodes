@@ -11,6 +11,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from distutils.version import LooseVersion
+from functools import cached_property
 from json import JSONDecodeError, dumps
 from pathlib import Path
 from typing import Iterable, Optional, Union, Dict, Any, Tuple, Collection, Mapping, Set, List
@@ -21,7 +22,6 @@ from requests import RequestException, Response
 from db_cache import TTLDBCache, DBCache
 from db_cache.utils import get_user_cache_dir
 from requests_client import RequestsClient
-from .compat import cached_property
 from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
 from .page import WikiPage
 from .utils import partitioned
@@ -31,7 +31,6 @@ log = logging.getLogger(__name__)
 qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
-FILE_NAME_MATCH = re.compile(r'.*\.\w{3,4}$').match
 PageData = Dict[str, Dict[str, Any]]
 
 
@@ -747,11 +746,16 @@ def normalize(title: str) -> str:
 
 
 def _image_name(title_or_url: str) -> str:
+    try:
+        file_name_match = _image_name._file_name_match
+    except AttributeError:
+        file_name_match = _image_name._file_name_match = re.compile(r'.*\.\w{3,4}$').match
+
     if URL_MATCH(title_or_url):
         path = urlparse(title_or_url).path
-        while path and not FILE_NAME_MATCH(path):
+        while path and not file_name_match(path):
             path = path.rsplit('/', 1)[0]
-        if FILE_NAME_MATCH(path):
+        if file_name_match(path):
             title = path.rsplit('/', 1)[-1]
         else:
             raise ValueError(f'Unable to determine filename from {title_or_url=}')

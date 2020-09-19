@@ -9,11 +9,10 @@ This is still a work in process - some data types are not fully handled yet, and
 
 import logging
 import re
-import sys
 from abc import ABC, abstractmethod
-from collections import OrderedDict
 from collections.abc import MutableMapping
 from copy import copy
+from functools import cached_property
 from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable, Tuple, Mapping
 
 from wikitextparser import (
@@ -21,7 +20,6 @@ from wikitextparser import (
     WikiList as _List
 )
 
-from .compat import cached_property
 from .utils import strip_style, ClearableCachedPropertyMixin, IntervalCoverageMap
 
 __all__ = [
@@ -30,17 +28,11 @@ __all__ = [
 ]
 log = logging.getLogger(__name__)
 
-PY_LT_37 = sys.version_info.major == 3 and sys.version_info.minor < 7
-ordered_dict = OrderedDict if PY_LT_37 else dict            # 3.7+ dict retains insertion order; dict repr is cleaner
-
 N = TypeVar('N', bound='Node')
 AnyNode = Union[
     'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List', 'Table',
     'Template', 'Root', 'Section'
 ]
-
-INTERWIKI_COMMUNITY_LINK_MATCH = re.compile(r'^(w:c:[^:]+):(.+)$').match
-SPECIAL_LINK_PREFIXES = {'category', 'image', 'file', 'template'}
 _NotSet = object()
 
 
@@ -185,7 +177,7 @@ class MappingNode(CompoundNode, MutableMapping):
 
     @cached_property
     def children(self) -> Dict[Union[str, N], Optional[N]]:
-        return ordered_dict()
+        return {}
 
     def keys(self):
         return self.children.keys()
@@ -337,7 +329,7 @@ class Link(BasicNode):
     @cached_property
     def special(self) -> bool:
         prefix = self.title.split(':', 1)[0].lower()
-        return prefix in SPECIAL_LINK_PREFIXES
+        return prefix in {'category', 'image', 'file', 'template'}
 
     @cached_property
     def interwiki(self) -> bool:
@@ -350,7 +342,7 @@ class Link(BasicNode):
     def iw_key_title(self) -> Tuple[str, str]:
         title = self.title
         if (root := self.root) and ':' in title:
-            if m := INTERWIKI_COMMUNITY_LINK_MATCH(title):
+            if m := iw_community_link_match(title):
                 # noinspection PyTypeChecker
                 return tuple(m.groups())
             elif iw_map := root._interwiki_map:
@@ -497,7 +489,7 @@ class List(CompoundNode):
         return self._as_mapping
 
     def as_dict(self, sep=':', multiline=None) -> Dict[Union[str, N], Optional[N]]:
-        data = ordered_dict()
+        data = {}
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
 
         def _add_kv(key, val):
@@ -812,7 +804,7 @@ class Section(Node, ContainerNode):
                 raise ValueError('Invalid wiki section value') from e
         self.title = strip_style(self.raw.title) if self.raw.title else ''                      # type: str
         self.level = self.raw.level                                                             # type: int
-        self.children = ordered_dict()  # populated by Root.sections
+        self.children = {}  # populated by Root.sections
 
     def __repr__(self):
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
@@ -1134,6 +1126,14 @@ def _find_all(node, node_cls: Type[N], recurse=True, _recurse_first=True, **kwar
             yield from node.find_all(node_cls, recurse, **kwargs)
     elif _recurse_first and isinstance(node, ContainerNode):
         yield from node.find_all(node_cls, recurse=recurse, **kwargs)
+
+
+def iw_community_link_match(title: str):
+    try:
+        match = iw_community_link_match._match
+    except AttributeError:
+        match = iw_community_link_match._match = re.compile(r'^(w:c:[^:]+):(.+)$').match
+    return match(title)
 
 
 WTP_TYPE_METHOD_NODE_MAP = {
