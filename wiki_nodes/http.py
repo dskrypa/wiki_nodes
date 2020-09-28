@@ -134,11 +134,9 @@ class MediaWikiClient(RequestsClient):
         return self.siteinfo['general']['articlepath'].replace('$1', '')
 
     def article_url_to_title(self, url: str) -> str:
-        unquoted = unquote(url)
-        parsed = urlparse(unquoted)
-        title = parsed.path.replace(self.article_path_prefix, '', 1)
-        if '=' not in parsed.query and '%3F' in url:
-            title = f'{title}?{parsed.query}'
+        parsed = urlparse(url)
+        uri_path = unquote(parsed.path)
+        title = uri_path.replace(self.article_path_prefix, '', 1)
         return title
 
     def url_for_article(self, title: str) -> str:
