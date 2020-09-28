@@ -15,7 +15,7 @@ from wiki_nodes.__version__ import __author_email__, __version__
 from wiki_nodes.http import MediaWikiClient
 
 log = logging.getLogger(__name__)
-MODES = ('raw', 'headers', 'reprs', 'content', 'processed')
+MODES = ('raw', 'headers', 'reprs', 'content', 'processed', 'title')
 
 
 def main():
@@ -30,8 +30,12 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-    page = MediaWikiClient.page_for_article(args.url)
-    page.sections.pprint(args.mode)
+    if args.mode == 'title':
+        client = MediaWikiClient(args.url, nopath=True)
+        print(client.article_url_to_title(args.url))
+    else:
+        page = MediaWikiClient.page_for_article(args.url)
+        page.sections.pprint(args.mode)
 
 
 if __name__ == '__main__':

@@ -137,8 +137,8 @@ class MediaWikiClient(RequestsClient):
         unquoted = unquote(url)
         parsed = urlparse(unquoted)
         title = parsed.path.replace(self.article_path_prefix, '', 1)
-        if url.endswith('%3F') and not parsed.query:
-            title += '?'
+        if '=' not in parsed.query and '%3F' in url:
+            title = f'{title}?{parsed.query}'
         return title
 
     def url_for_article(self, title: str) -> str:
