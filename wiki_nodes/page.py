@@ -146,6 +146,9 @@ class WikiPage(Root):
                     # log.debug(f'Found intro in node#{i}')
                     intro = node.value
                     break
+                elif isinstance(node, Tag) and node.name == 'p' and node.attrs.get('id') == 'firstHeading':
+                    intro = node.value
+                    break
                 elif type(node) is CompoundNode and allowed_in_intro(node):
                     # log.debug(f'Found intro in node#{i}')
                     intro = node
