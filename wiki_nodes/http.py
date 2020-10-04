@@ -205,6 +205,7 @@ class MediaWikiClient(RequestsClient):
         if no_parse:
             return resp.json()
         parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
+        # log.debug(f'From {resp.url=} - parsed.keys()={parsed.keys()}')
         skip_merge = {'pageid', 'ns', 'title'}
         while prop_continue or other_continue:
             continue_params = deepcopy(params)
@@ -217,37 +218,44 @@ class MediaWikiClient(RequestsClient):
 
             resp = self.get('api.php', params=continue_params)
             _parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
+            # log.debug(f'From {resp.url=} - _parsed.keys()={_parsed.keys()}')
             for title, data in _parsed.items():
-                full = parsed[title]
-                for key, val in data.items():
-                    if key == 'iwlinks':
-                        try:
-                            full_val = full[key]
-                        except KeyError:
-                            full_val = full[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
+                try:
+                    full = parsed[title]
+                except KeyError:
+                    parsed[title] = data
+                else:
+                    for key, val in data.items():
+                        if key == 'iwlinks':
+                            try:
+                                full_val = full[key]
+                            except KeyError:
+                                full_val = full[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
 
-                        for iw_name, iw_links in val.items():
-                            full_val[iw_name].update(iw_links)
-                    else:
-                        try:
-                            full_val = full[key]
-                        except KeyError:
-                            full[key] = val
+                            for iw_name, iw_links in val.items():
+                                full_val[iw_name].update(iw_links)
                         else:
-                            if isinstance(full_val, list):
-                                full_val.extend(val)
-                            elif isinstance(full_val, dict):
-                                full_val.update(val)
-                            elif key in skip_merge:
-                                pass
+                            try:
+                                full_val = full[key]
+                            except KeyError:
+                                full[key] = val
                             else:
-                                if val is not None and full_val is None:
-                                    full[key] = val
-                                elif val == full_val:
+                                if isinstance(full_val, list):
+                                    full_val.extend(val)
+                                elif isinstance(full_val, dict):
+                                    full_val.update(val)
+                                elif key in skip_merge:
                                     pass
                                 else:
-                                    base = f'Unexpected value to merge for title={title!r} key={key!r} type='
-                                    log.error(f'{base}{type(full_val).__name__} full_val={full_val!r} new val={val!r}')
+                                    if val is not None and full_val is None:
+                                        full[key] = val
+                                    elif val == full_val:
+                                        pass
+                                    else:
+                                        log.error(
+                                            f'Unexpected value to merge for title={title!r} key={key!r} type='
+                                            f'{type(full_val).__name__} full_val={full_val!r} new val={val!r}'
+                                        )
 
         return parsed
 
