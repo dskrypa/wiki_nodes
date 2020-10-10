@@ -244,6 +244,8 @@ class MediaWikiClient(RequestsClient):
                                     full_val.extend(val)
                                 elif isinstance(full_val, dict):
                                     full_val.update(val)
+                                elif isinstance(full_val, int):
+                                    full[key] = val
                                 elif key in skip_merge:
                                     pass
                                 else:
