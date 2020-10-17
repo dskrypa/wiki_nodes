@@ -206,7 +206,7 @@ class MediaWikiClient(RequestsClient):
             return resp.json()
         parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
         # log.debug(f'From {resp.url=} - parsed.keys()={parsed.keys()}')
-        skip_merge = {'pageid', 'ns', 'title'}
+        skip_merge = {'pageid', 'ns', 'title', 'redirected_from'}
         while prop_continue or other_continue:
             continue_params = deepcopy(params)
             if prop_continue:
