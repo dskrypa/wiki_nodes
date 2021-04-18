@@ -140,7 +140,9 @@ class MediaWikiClient(RequestsClient):
         return title
 
     def url_for_article(self, title: str) -> str:
-        return self.url_for(self.article_path_prefix + title.replace(' ', '_'))
+        # gen_info = self.siteinfo['general']  # Note: gen_info['server'] may use http when https is supported
+        # return gen_info['server'] + gen_info['articlepath'].replace('$1', title.replace(' ', '_'))
+        return self.url_for(self.article_path_prefix + title.replace(' ', '_'), relative=False)
 
     def _update_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Include useful default parameters, and handle conversion of lists/tuples/sets to pipe-delimited strings."""
