@@ -282,7 +282,11 @@ class String(BasicNode):
 class Link(BasicNode):
     def __init__(self, raw: Union[str, WikiText, _Link], root: Optional['Root'] = None):
         super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
-        self._orig = self.raw.wikilinks[0]                  # type: _Link
+        try:
+            self._orig = self.raw.wikilinks[0]                  # type: _Link
+        except IndexError:
+            log.error(f'Attempted to create Link from content that did not contain a link. Raw wiki text:\n{self.raw}')
+            raise
         self.title = ' '.join(self._orig.title.split())     # type: str     # collapse extra spaces
         self.text = self._orig.text                         # type: str
 
