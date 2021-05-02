@@ -15,6 +15,7 @@ from functools import cached_property
 from io import BytesIO
 from json import JSONDecodeError, dumps
 from pathlib import Path
+from shutil import copyfileobj
 from typing import Iterable, Optional, Union, Any, Collection, Mapping
 from urllib.parse import urlparse, unquote, parse_qs
 
@@ -757,8 +758,10 @@ class MediaWikiClient(RequestsClient):
         except (ValueError, TypeError, KeyError):
             content_len = 0
         bio = BytesIO()
-        for chunk in resp:
-            bio.write(chunk)
+        resp.raw.decode_content = True
+        copyfileobj(resp.raw, bio)
+        # for chunk in resp:
+        #     bio.write(chunk)
         data = bio.getvalue()
         log.debug(f'Downloaded {len(data):,d} B (expected {content_len:,d} B) from {url}')
         if content_len and len(data) == content_len:
