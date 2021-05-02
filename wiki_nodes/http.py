@@ -761,7 +761,8 @@ class MediaWikiClient(RequestsClient):
             bio.write(chunk)
         data = bio.getvalue()
         log.debug(f'Downloaded {len(data):,d} B (expected {content_len:,d} B) from {url}')
-        self._save_image(name, data)
+        if content_len and len(data) == content_len:
+            self._save_image(name, data)
         return data
 
     def _get_cached_image(self, name: Optional[str]) -> bytes:
