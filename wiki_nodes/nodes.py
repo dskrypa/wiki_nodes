@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from copy import copy
 from functools import cached_property
-from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, List as ListType, Dict, Callable, Tuple, Mapping
+from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping
 
 from wikitextparser import (
     WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
@@ -96,7 +96,7 @@ class ContainerNode(ABC):
 
 class CompoundNode(Node, ContainerNode):
     @cached_property
-    def children(self) -> ListType[N]:
+    def children(self) -> list[N]:
         return []
 
     def __repr__(self):
@@ -176,7 +176,7 @@ class MappingNode(CompoundNode, MutableMapping):
             self.children.update(content)
 
     @cached_property
-    def children(self) -> Dict[Union[str, N], Optional[N]]:
+    def children(self) -> dict[Union[str, N], Optional[N]]:
         return {}
 
     def keys(self):
@@ -343,7 +343,7 @@ class Link(BasicNode):
             return False
 
     @cached_property
-    def iw_key_title(self) -> Tuple[str, str]:
+    def iw_key_title(self) -> tuple[str, str]:
         title = self.title
         if (root := self.root) and ':' in title:
             if m := iw_community_link_match(title):
@@ -413,7 +413,7 @@ class ListEntry(CompoundNode):
         return List(content, self.root, self.preserve_comments)
 
     @property
-    def children(self) -> ListType['ListEntry']:
+    def children(self) -> list['ListEntry']:
         sub_list = self.sub_list
         if not sub_list:
             return []
@@ -474,7 +474,7 @@ class List(CompoundNode):
         self.start_char = self.raw.string[0]
 
     @cached_property
-    def children(self) -> ListType[ListEntry]:
+    def children(self) -> list[ListEntry]:
         return [ListEntry(val, self.root, self.preserve_comments) for val in map(str.strip, self.raw.fullitems)]
 
     def extend(self, list_node: 'List'):
@@ -492,7 +492,7 @@ class List(CompoundNode):
             self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
         return self._as_mapping
 
-    def as_dict(self, sep=':', multiline=None) -> Dict[Union[str, N], Optional[N]]:
+    def as_dict(self, sep=':', multiline=None) -> dict[Union[str, N], Optional[N]]:
         data = {}
         node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
 

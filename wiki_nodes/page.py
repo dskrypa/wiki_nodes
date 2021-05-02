@@ -11,7 +11,7 @@ Notes:\n
 
 import logging
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional, Union, Iterable, Set, Mapping
+from typing import TYPE_CHECKING, Optional, Union, Iterable, Mapping
 
 from wikitextparser import WikiText
 
@@ -70,7 +70,7 @@ class WikiPage(Root):
         return self._sort_key < other._sort_key
 
     @cached_property
-    def categories(self) -> Set[str]:
+    def categories(self) -> set[str]:
         """The lower-case categories for this page, with ignored prefixes (if applicable) filtered out"""
         categories = {
             cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)
@@ -185,7 +185,7 @@ class WikiPage(Root):
 
         return intro
 
-    def links(self, unique=True, special=False, interwiki=False) -> Set[Link]:
+    def links(self, unique=True, special=False, interwiki=False) -> set[Link]:
         """
         :param bool unique: Only include links with unique titles
         :param bool special: Include special (file, image, category, etc) links
