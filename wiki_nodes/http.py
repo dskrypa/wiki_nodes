@@ -276,6 +276,8 @@ class MediaWikiClient(RequestsClient):
     def __pickle_response(self, resp: Response):
         url = quote(resp.url, safe='')
         path = self._base_cache_dir.joinpath('responses', datetime.now().strftime('%Y-%m-%d'), f'{url}.pkl')
+        if not path.parent.exists():
+            path.parent.mkdir(parents=True)
         with path.open('wb') as f:
             pickle.dump(resp, f)
 
