@@ -268,11 +268,11 @@ class MediaWikiClient(RequestsClient):
     def _parse_query(self, response: Mapping[str, Any], url: str) -> tuple[dict[str, dict[str, Any]], Any, Any]:
         if 'query' not in response and 'error' in response:
             raise WikiResponseError(dumps(response['error']))
-
         try:
             results = response['query']
         except KeyError:
-            log.debug(f'Response from {url} contained no \'query\' key; found: {", ".join(response)}')
+            if len(response) != 1 or not response.get('batchcomplete'):
+                log.debug(f'Response from {url} contained no \'query\' key; found: {", ".join(response)}')
             # log.debug(f'Complete response: {dumps(response, sort_keys=True, indent=4)}')
             return {}, None, None
         except TypeError:
@@ -433,7 +433,7 @@ class MediaWikiClient(RequestsClient):
     def _cache_search_pages(self, term, titles):
         self._search_title_cache[term] = list(titles)
 
-    def _process_pages_resp(self, resp, need, norm_to_orig, pages, allow_unexpected=False):
+    def _process_pages_resp(self, resp: dict[str, dict[str, Any]], need, norm_to_orig, pages, allow_unexpected=False):
         no_data = []
         qlog.debug(f'Found {len(resp)} pages: [{", ".join(map(repr, sorted(resp)))}]')
         lc_norm_to_norm = None
@@ -479,7 +479,10 @@ class MediaWikiClient(RequestsClient):
                                 log.debug(fmt.format(self.host, title))
                     else:
                         # Exact title match
-                        pages[norm_to_orig.pop(norm_title)] = entry
+                        try:
+                            pages[norm_to_orig.pop(norm_title)] = entry
+                        except KeyError as e:
+                            raise KeyError(f'No original title found for {norm_title=} {title=}') from e
 
         return no_data
 
