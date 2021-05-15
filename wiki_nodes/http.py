@@ -334,7 +334,12 @@ class MediaWikiClient(RequestsClient):
             qlog.debug(f'Processing page with title={title!r}, keys: {", ".join(sorted(page))}')
             # if 'revisions' not in page:
             #     qlog.debug(f' > Content: {dumps(page, sort_keys=True, indent=4)}')
-            content = parsed[title] = {'redirected_from': redirects.get(title)}
+            if redirected_from := redirects.get(title):
+                content = {'redirected_from': redirected_from}
+            else:
+                content = {}
+
+            parsed[title] = content
             for key, val in page.items():
                 if key == 'revisions':
                     if self.mw_version >= LooseVersion('1.32'):
@@ -453,7 +458,10 @@ class MediaWikiClient(RequestsClient):
 
     def _process_pages_resp(self, resp: dict[str, dict[str, Any]], need, norm_to_orig, pages, allow_unexpected=False):
         no_data = []
-        qlog.debug(f'Found {len(resp)} pages: [{", ".join(map(repr, sorted(resp)))}]')
+        qlog.debug(
+            f'Found {len(resp)} pages for {need=} {norm_to_orig=} {allow_unexpected=}:'
+            f' [{", ".join(map(repr, sorted(resp)))}]'
+        )
         lc_norm_to_norm = None
         for title, data in resp.items():
             qlog.debug(f'Processing page with title={title!r}, data: {", ".join(sorted(data))}')
