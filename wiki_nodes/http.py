@@ -470,7 +470,7 @@ class MediaWikiClient(RequestsClient):
                 no_data.append(title)
             else:
                 entry = self._cache_page(title, data.get('categories'), data.get('revisions'))
-                if redirected_from := normalize(data.get('redirected_from')):
+                if redirected_from := normalize(data.get('redirected_from') or ''):
                     self._store_normalized(redirected_from, title, 'redirect')
                     try:
                         pages[norm_to_orig.pop(redirected_from)] = entry
