@@ -482,7 +482,9 @@ class MediaWikiClient(RequestsClient):
                         try:
                             pages[norm_to_orig.pop(norm_title)] = entry
                         except KeyError as e:
-                            raise KeyError(f'No original title found for {norm_title=} {title=}') from e
+                            raise KeyError(
+                                f'No original title found for {norm_title=} {title=} {norm_to_orig=} from {self.host}'
+                            ) from e
 
         return no_data
 
