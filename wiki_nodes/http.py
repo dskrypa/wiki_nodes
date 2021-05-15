@@ -19,7 +19,7 @@ from json import JSONDecodeError, dumps
 from pathlib import Path
 from shutil import copyfileobj
 from typing import Iterable, Optional, Union, Any, Collection, Mapping
-from urllib.parse import urlparse, unquote, parse_qs, quote
+from urllib.parse import urlparse, unquote, parse_qs
 
 from requests import RequestException, Response
 
@@ -66,18 +66,30 @@ class MediaWikiClient(RequestsClient):
                 self.path_prefix = 'w'
             if MediaWikiClient._siteinfo_cache is None:
                 MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
-            self._base_cache_dir = cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}'))
-            self._page_cache = TTLDBCache('pages', cache_dir=cache_dir, ttl=ttl)
-            self._search_title_cache = TTLDBCache('search_titles', cache_dir=cache_dir, ttl=ttl)
-            self._search_cache = TTLDBCache('searches', cache_dir=cache_dir, ttl=ttl)
-            # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
-            self._norm_title_cache = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')  # noqa
-            self._misc_cache = TTLDBCache('misc', cache_dir=cache_dir, ttl=ttl)
+            self._base_cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}'))
+            self._ttl = ttl
+            self.reset_caches(False)
             self._image_cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}/images'))
             self.__initialized = True
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.host})>'
+
+    # noinspection PyAttributeOutsideInit
+    def reset_caches(self, hard: bool = False):
+        cache_dir = self._base_cache_dir
+        if hard:
+            for path in cache_dir.iterdir():
+                if path.is_file() and path.suffix == '.db':
+                    log.debug(f'Deleting cache file: {path.as_posix()}')
+                    path.unlink()
+
+        self._page_cache = TTLDBCache('pages', cache_dir=cache_dir, ttl=self._ttl)
+        self._search_title_cache = TTLDBCache('search_titles', cache_dir=cache_dir, ttl=self._ttl)
+        self._search_cache = TTLDBCache('searches', cache_dir=cache_dir, ttl=self._ttl)
+        # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
+        self._norm_title_cache = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')  # noqa
+        self._misc_cache = TTLDBCache('misc', cache_dir=cache_dir, ttl=self._ttl)
 
     @cached_property
     def siteinfo(self) -> dict[str, Any]:
