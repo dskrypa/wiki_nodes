@@ -470,7 +470,7 @@ class MediaWikiClient(RequestsClient):
                 no_data.append(title)
             else:
                 entry = self._cache_page(title, data.get('categories'), data.get('revisions'))
-                if redirected_from := normalize(data['redirected_from'] or ''):
+                if redirected_from := normalize(data.get('redirected_from')):
                     self._store_normalized(redirected_from, title, 'redirect')
                     try:
                         pages[norm_to_orig.pop(redirected_from)] = entry
@@ -500,8 +500,7 @@ class MediaWikiClient(RequestsClient):
                                 self._store_normalized(norm_title, title, 'quiet redirect')
                                 pages[norm_to_orig.pop(norm_title)] = entry
                             else:
-                                fmt = 'Received page from {} for title={!r} that did not match any requested title'
-                                log.debug(fmt.format(self.host, title))
+                                log.debug(f'Received page={title!r} from {self.host} not matching any requested titles')
                     else:
                         # Exact title match
                         try:
