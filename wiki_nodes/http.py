@@ -274,11 +274,13 @@ class MediaWikiClient(RequestsClient):
         return parsed
 
     def __pickle_response(self, resp: Response):
-        url = quote(resp.url, safe='')
-        path = self._base_cache_dir.joinpath('responses', datetime.now().strftime('%Y-%m-%d'), f'{url}.pkl')
-        if not path.parent.exists():
-            path.parent.mkdir(parents=True)
-        with path.open('wb') as f:
+        now = datetime.now()
+        resp_dir = self._base_cache_dir.joinpath('responses', now.strftime('%Y-%m-%d'))
+        if not resp_dir.exists():
+            resp_dir.mkdir(parents=True)
+        with resp_dir.joinpath(f'{now.timestamp()}.url').open('w', encoding='utf-8') as f:
+            f.write(resp.url + '\n')
+        with resp_dir.joinpath(f'{now.timestamp()}.pkl').open('wb') as f:
             pickle.dump(resp, f)
 
     def _parse_query(self, response: Mapping[str, Any], url: str) -> tuple[dict[str, dict[str, Any]], Any, Any]:
