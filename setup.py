@@ -30,8 +30,8 @@ setup(
     ],
     python_requires='~=3.9',
     install_requires=[
-        'requests_client @ git+git://github.com/dskrypa/requests_client',  # >= 2021.5.2 (doesn't support URL + version)
-        'db_cache @ git+git://github.com/dskrypa/db_cache',
+        'requests_client@ git+git://github.com/dskrypa/requests_client',  # >= 2021.5.2 (doesn't support URL + version)
+        'db_cache@ git+git://github.com/dskrypa/db_cache',
         'wikitextparser',
         'requests'
     ],

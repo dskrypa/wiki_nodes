@@ -6,10 +6,12 @@ requests.
 """
 
 import logging
+import pickle
 import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
+from datetime import datetime
 from distutils.version import LooseVersion
 from functools import cached_property
 from io import BytesIO
@@ -17,7 +19,7 @@ from json import JSONDecodeError, dumps
 from pathlib import Path
 from shutil import copyfileobj
 from typing import Iterable, Optional, Union, Any, Collection, Mapping
-from urllib.parse import urlparse, unquote, parse_qs
+from urllib.parse import urlparse, unquote, parse_qs, quote
 
 from requests import RequestException, Response
 
@@ -37,6 +39,7 @@ PageData = dict[str, dict[str, Any]]
 
 
 class MediaWikiClient(RequestsClient):
+    _pickle_queries = False
     _siteinfo_cache = None
     _instances = {}             # type: dict[str, MediaWikiClient]
 
@@ -62,13 +65,14 @@ class MediaWikiClient(RequestsClient):
                 self.path_prefix = 'w'
             if MediaWikiClient._siteinfo_cache is None:
                 MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
-            self._page_cache = TTLDBCache(f'{self.host}_pages', cache_subdir='wiki', ttl=ttl)
-            self._search_title_cache = TTLDBCache(f'{self.host}_search_titles', cache_subdir='wiki', ttl=ttl)
-            self._search_cache = TTLDBCache(f'{self.host}_searches', cache_subdir='wiki', ttl=ttl)
+            self._base_cache_dir = cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}'))
+            self._page_cache = TTLDBCache('pages', cache_dir=cache_dir, ttl=ttl)
+            self._search_title_cache = TTLDBCache('search_titles', cache_dir=cache_dir, ttl=ttl)
+            self._search_cache = TTLDBCache('searches', cache_dir=cache_dir, ttl=ttl)
             # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
-            self._norm_title_cache = DBCache(f'{self.host}_normalized_titles', cache_subdir='wiki', time_fmt='%Y')
-            self._misc_cache = TTLDBCache(f'{self.host}_misc', cache_subdir='wiki', ttl=ttl)
-            self._image_cache_dir = Path(get_user_cache_dir(f'wiki/images_{self.host}'))
+            self._norm_title_cache = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')  # noqa
+            self._misc_cache = TTLDBCache('misc', cache_dir=cache_dir, ttl=ttl)
+            self._image_cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}/images'))
             self.__initialized = True
 
     def __repr__(self):
@@ -206,6 +210,8 @@ class MediaWikiClient(RequestsClient):
     def _query(self, *, no_parse=False, **params) -> dict[str, dict[str, Any]]:
         params = self._update_params(params)
         resp = self.get('api.php', params=params)
+        if self._pickle_queries:
+            self.__pickle_response(resp)
         if no_parse:
             return resp.json()
         parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
@@ -221,6 +227,8 @@ class MediaWikiClient(RequestsClient):
                 continue_params.update(other_continue)
 
             resp = self.get('api.php', params=continue_params)
+            if self._pickle_queries:
+                self.__pickle_response(resp)
             _parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
             # log.debug(f'From {resp.url=} - _parsed.keys()={_parsed.keys()}')
             for title, data in _parsed.items():
@@ -264,6 +272,12 @@ class MediaWikiClient(RequestsClient):
                                         )
 
         return parsed
+
+    def __pickle_response(self, resp: Response):
+        url = quote(resp.url, safe='')
+        path = self._base_cache_dir.joinpath('responses', datetime.now().strftime('%Y-%m-%d'), f'{url}.pkl')
+        with path.open('wb') as f:
+            pickle.dump(resp, f)
 
     def _parse_query(self, response: Mapping[str, Any], url: str) -> tuple[dict[str, dict[str, Any]], Any, Any]:
         if 'query' not in response and 'error' in response:
@@ -422,7 +436,7 @@ class MediaWikiClient(RequestsClient):
         qlog.debug(f'Storing title normalization for {orig!r} => {normalized!r} [{reason}]')
         self._norm_title_cache[orig] = normalized
 
-    def _cache_page(self, title, categories=None, revisions=None):
+    def _cache_page(self, title: str, categories=None, revisions=None):
         self._page_cache[title] = entry = {
             'title': title,
             'categories': categories or [],
@@ -444,8 +458,7 @@ class MediaWikiClient(RequestsClient):
                 no_data.append(title)
             else:
                 entry = self._cache_page(title, data.get('categories'), data.get('revisions'))
-                redirected_from = normalize(data['redirected_from'] or '')
-                if redirected_from:
+                if redirected_from := normalize(data['redirected_from'] or ''):
                     self._store_normalized(redirected_from, title, 'redirect')
                     try:
                         pages[norm_to_orig.pop(redirected_from)] = entry
