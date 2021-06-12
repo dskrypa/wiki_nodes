@@ -158,6 +158,8 @@ class MediaWikiClient(RequestsClient):
         title = uri_path.replace(self.article_path_prefix, '', 1)
         if url.endswith('?') and not title.endswith('?'):
             title += '?'
+        elif parsed.query and not parse_qs(parsed.query):
+            title = f'{title}?{parsed.query}'
         return title
 
     def url_for_article(self, title: str) -> str:
