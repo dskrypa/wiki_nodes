@@ -152,15 +152,22 @@ class MediaWikiClient(RequestsClient):
     def article_path_prefix(self) -> str:
         return self.siteinfo['general']['articlepath'].replace('$1', '')
 
+    @cached_property
+    def article_url_prefix(self) -> str:
+        return self.url_for(self.article_path_prefix)
+
     def article_url_to_title(self, url: str) -> str:
-        parsed = urlparse(url)
-        uri_path = unquote(parsed.path)
-        title = uri_path.replace(self.article_path_prefix, '', 1)
-        if url.endswith('?') and not title.endswith('?'):
-            title += '?'
-        elif parsed.query and not parse_qs(parsed.query):
-            title = f'{title}?{parsed.query}'
-        return title
+        if url.startswith(self.article_url_prefix):
+            return url[len(self.article_url_prefix):]
+        else:
+            parsed = urlparse(url)
+            uri_path = unquote(parsed.path)
+            title = uri_path.replace(self.article_path_prefix, '', 1)
+            if url.endswith('?') and not title.endswith('?'):
+                title += '?'
+            elif parsed.query and not parse_qs(parsed.query):
+                title = f'{title}?{parsed.query}'
+            return title
 
     def url_for_article(self, title: str) -> str:
         # gen_info = self.siteinfo['general']  # Note: gen_info['server'] may use http when https is supported
