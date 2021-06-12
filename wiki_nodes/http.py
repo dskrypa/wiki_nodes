@@ -156,6 +156,8 @@ class MediaWikiClient(RequestsClient):
         parsed = urlparse(url)
         uri_path = unquote(parsed.path)
         title = uri_path.replace(self.article_path_prefix, '', 1)
+        if url.endswith('?') and not title.endswith('?'):
+            title += '?'
         return title
 
     def url_for_article(self, title: str) -> str:
