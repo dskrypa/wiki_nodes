@@ -4,11 +4,13 @@
 
 import re
 from collections import UserDict
+from typing import TypeVar, Sequence, Iterator
 
 __all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap']
+T = TypeVar('T')
 
 
-def strip_style(text: str, strip=True) -> str:
+def strip_style(text: str, strip: bool = True) -> str:
     """
     Strip style tags from the given wiki text string.
 
@@ -16,9 +18,9 @@ def strip_style(text: str, strip=True) -> str:
 
     Replaces the need for using mwparserfromhell in addition to wikitextparser.
 
-    :param str text: The text from which style tags should be stripped
-    :param bool strip: Also strip leading/trailing spaces
-    :return str: The given text, without style tags
+    :param text: The text from which style tags should be stripped
+    :param strip: Also strip leading/trailing spaces
+    :return: The given text, without style tags
     """
     if "''" in text:
         try:
@@ -41,10 +43,10 @@ def strip_style(text: str, strip=True) -> str:
     return text.strip() if strip else text
 
 
-def partitioned(seq, n):
+def partitioned(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]:
     """
     :param seq: A :class:`collections.abc.Sequence` (i.e., list, tuple, set, etc.)
-    :param int n: Max number of values in a given partition
+    :param n: Max number of values in a given partition
     :return: Generator that yields sub-sequences of the given sequence with len being at most n
     """
     for i in range(0, len(seq), n):
