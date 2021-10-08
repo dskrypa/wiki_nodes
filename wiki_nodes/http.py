@@ -683,11 +683,9 @@ class MediaWikiClient(RequestsClient):
         needed, urls = self._get_misc_cached('imageinfo', titles)
         if needed:
             resp = self.query(prop='imageinfo', iiprop='url', titles=needed)
-            try:
-                resp_urls = {title: data['imageinfo'][0]['url'] for title, data in resp.items()}
-            except KeyError:
-                log.error(f'Error processing image info for titles={needed} - {resp=}')
-                raise
+            resp_urls = {  # Some entries may have missing: True and no imageinfo key
+                title: img_info[0]['url'] for title, data in resp.items() if (img_info := data.get('imageinfo'))
+            }
             self._store_misc_cached('imageinfo', resp_urls)
             urls.update(resp_urls)
         return urls
