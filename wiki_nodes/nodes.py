@@ -286,19 +286,34 @@ class Link(BasicNode):
         self.title = ' '.join(self._orig.title.split())     # type: str     # collapse extra spaces
         self.text = self._orig.text                         # type: str
 
+    # region Link low level methods
+
+    def __hash__(self) -> int:
+        return reduce(xor, map(hash, (self.__class__, self._str, self.source_site)))
+
     def __eq__(self, other: 'Link') -> bool:
         if not isinstance(other, Link):
             return False
         return self._str == other._str and self.source_site == other.source_site
-
-    def __hash__(self) -> int:
-        return reduce(xor, map(hash, (self.__class__, self._str, self.source_site)))
 
     def __lt__(self, other: 'Link') -> bool:
         return self.__cmp_tuple < other.__cmp_tuple
 
     def __str__(self) -> str:
         return self.show or self.raw.string
+
+    def __repr__(self) -> str:
+        if self.root and (site := self.root.site):
+            parts = site.split('.')[:-1]            # omit domain
+            if parts[0] in {'www', 'wiki', 'en'}:   # omit common prefixes
+                parts = parts[1:]
+            site = '.'.join(parts)
+            return f'<{self.__class__.__name__}:{self._str!r}@{site}>'
+        return f'<{self.__class__.__name__}:{self._str!r}>'
+
+    @cached_property
+    def _str(self) -> str:
+        return self._format(self.title, self.text)
 
     @property
     def __cmp_tuple(self):
@@ -308,13 +323,11 @@ class Link(BasicNode):
     def _format(cls, title: str, text: str = None) -> str:
         return f'[[{title}|{text}]]' if text else f'[[{title}]]'
 
+    # endregion
+
     @classmethod
     def from_title(cls, title: str, root: 'Root' = None, text: str = None) -> 'Link':
         return cls(cls._format(title, text), root)
-
-    @cached_property
-    def _str(self) -> str:
-        return self._format(self.title, self.text)
 
     @cached_property
     def show(self) -> Optional[str]:
@@ -330,6 +343,12 @@ class Link(BasicNode):
     def special(self) -> bool:
         prefix = self.title.split(':', 1)[0].lower()
         return prefix in {'category', 'image', 'file', 'template'}
+
+    # region Link target resolution methods
+
+    @cached_property
+    def to_file(self) -> bool:
+        return self.title.lower().startswith(('image:', 'file:'))
 
     @cached_property
     def interwiki(self) -> bool:
@@ -352,24 +371,21 @@ class Link(BasicNode):
                     return lc_prefix, iw_title
         raise ValueError(f'{self} is not an interwiki link')
 
-    def __repr__(self) -> str:
-        if self.root and self.root.site:
-            parts = self.root.site.split('.')[:-1]      # omit domain
-            if parts[0] in ('www', 'wiki', 'en'):       # omit common prefixes
-                parts = parts[1:]
-            site = '.'.join(parts)
-            return f'<{self.__class__.__name__}:{self._str!r}@{site}>'
-        return f'<{self.__class__.__name__}:{self._str!r}>'
-
-    @cached_property
-    def to_file(self) -> bool:
-        return self.title.lower().startswith(('image:', 'file:'))
-
     @cached_property
     def url(self) -> Optional[str]:
-        if not (site := self.source_site) or not (title := self.title):
+        """The fully resolved URL for this link"""
+        try:
+            mw_client, title = self.client_and_title
+        except ValueError:
             return None
+        else:
+            return mw_client.url_for_article(title)
 
+    @cached_property
+    def client_and_title(self) -> tuple['MediaWikiClient', str]:
+        """The :class:`MediaWikiClient<.http.MediaWikiClient>` and title to request from that client for this link"""
+        if not (site := self.source_site) or not (title := self.title):
+            raise ValueError(f'Missing site/title info for {self!r}')
         mw_client = MediaWikiClient(site)
         try:
             iw_key, title = self.iw_key_title
@@ -378,7 +394,9 @@ class Link(BasicNode):
         else:
             mw_client = mw_client.interwiki_client(iw_key)
 
-        return mw_client.url_for_article(title)
+        return mw_client, title
+
+    # endregion
 
 
 class ListEntry(CompoundNode):
