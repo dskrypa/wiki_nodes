@@ -21,6 +21,7 @@ from wikitextparser import (
     WikiList as _List
 )
 
+from .exceptions import NoLinkSite, NoLinkTarget
 from .utils import strip_style, ClearableCachedPropertyMixin, IntervalCoverageMap
 
 __all__ = [
@@ -376,7 +377,7 @@ class Link(BasicNode):
         """The fully resolved URL for this link"""
         try:
             mw_client, title = self.client_and_title
-        except ValueError:
+        except (NoLinkSite, NoLinkTarget):
             return None
         else:
             return mw_client.url_for_article(title)
@@ -384,15 +385,19 @@ class Link(BasicNode):
     @cached_property
     def client_and_title(self) -> tuple['MediaWikiClient', str]:
         """The :class:`MediaWikiClient<.http.MediaWikiClient>` and title to request from that client for this link"""
-        if not (site := self.source_site) or not (title := self.title):
-            raise ValueError(f'Missing site/title info for {self!r}')
+        if not (site := self.source_site):
+            raise NoLinkSite(self)
+
         mw_client = MediaWikiClient(site)
         try:
             iw_key, title = self.iw_key_title
         except ValueError:
-            pass
+            title = self.title
         else:
             mw_client = mw_client.interwiki_client(iw_key)
+
+        if not title:
+            raise NoLinkTarget(self)
 
         return mw_client, title
 
