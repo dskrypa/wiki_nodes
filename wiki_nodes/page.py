@@ -10,7 +10,8 @@ Notes:\n
 """
 
 import logging
-from functools import cached_property
+from functools import cached_property, reduce
+from operator import xor
 from typing import TYPE_CHECKING, Optional, Union, Iterable, Mapping
 
 from wikitextparser import WikiText
@@ -34,16 +35,16 @@ class WikiPage(Root):
         content: Union[str, WikiText],
         categories: Iterable[str],
         preserve_comments: bool = False,
-        interwiki_map: Optional[Mapping[str, str]] = None,
-        client: Optional['MediaWikiClient'] = None,
+        interwiki_map: Mapping[str, str] = None,
+        client: 'MediaWikiClient' = None,
     ):
         """
-        :param str title: The page title
-        :param str site: The site of origin for this page
-        :param str|WikiText content: The page content
-        :param iterable categories: This page's categories
-        :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
-        :param dict interwiki_map: Mapping of interwiki link prefix to wiki URL
+        :param title: The page title
+        :param site: The site of origin for this page
+        :param content: The page content
+        :param categories: This page's categories
+        :param preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
+        :param interwiki_map: Mapping of interwiki link prefix to wiki URL
         :param client: The MediaWikiClient from which this page originated
         """
         super().__init__(content, site, preserve_comments=preserve_comments, interwiki_map=interwiki_map)
@@ -51,7 +52,7 @@ class WikiPage(Root):
         self._categories = categories
         self._client = client
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'<{type(self).__name__}[{self.title!r} @ {self.site}]>'
 
     @cached_property
@@ -63,8 +64,8 @@ class WikiPage(Root):
             return False
         return self._sort_key == other._sort_key
 
-    def __hash__(self):
-        return hash((self.__class__, self.site, self.title, self.raw.string))
+    def __hash__(self) -> int:
+        return reduce(xor, map(hash, (self.__class__, self.site, self.title, self.raw.string)))
 
     def __lt__(self, other: 'WikiPage') -> bool:
         return self._sort_key < other._sort_key
@@ -103,7 +104,7 @@ class WikiPage(Root):
         return Link.from_title(self.title, self)
 
     @cached_property
-    def url(self):
+    def url(self) -> str:
         if self._client is not None:
             return self._client.url_for_article(self.title)
         raise AttributeError(f'Unable to determine URL when not initialized via MediaWikiClient')
@@ -127,7 +128,7 @@ class WikiPage(Root):
                 log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
 
-    def intro(self, strip_refs=False) -> Union[String, CompoundNode, None]:
+    def intro(self, strip_refs: bool = False) -> Union[String, CompoundNode, None]:
         """
         Neither parser provides access to the 1st paragraph directly when an infobox template precedes it - need to
         remove the infobox from the 1st section, or any other similar elements.
@@ -160,7 +161,7 @@ class WikiPage(Root):
                 #         from collections import Counter
                 #         types = Counter(n.__class__.__name__ for n in node)
                 #         log.debug(f' > Node contents: {json.dumps(types, sort_keys=True, indent=4)}')
-        except Exception as e:
+        except Exception:
             error = True
             log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
 
@@ -173,26 +174,25 @@ class WikiPage(Root):
                     elif found_infobox and type(node) is CompoundNode and starts_with_basic(node):
                         intro = node
                         break
-            except Exception as e:
+            except Exception:
                 log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
 
         if strip_refs and intro.__class__ is CompoundNode:
             nodes = [node for node in intro if not (isinstance(node, Tag) and node.name == 'ref')]
             if nodes != intro.children:
                 log.debug(f'Removed {len(intro.children) - len(nodes)} ref nodes from intro for {self}')
-                # noinspection PyPropertyAccess
                 intro.children = nodes
 
         return intro
 
-    def links(self, unique=True, special=False, interwiki=False) -> set[Link]:
+    def links(self, unique: bool = True, special: bool = False, interwiki: bool = False) -> set[Link]:
         """
-        :param bool unique: Only include links with unique titles
-        :param bool special: Include special (file, image, category, etc) links
-        :param bool interwiki: Include interwiki links
-        :return set: The set of Link objects matching the specified filters
+        :param unique: Only include links with unique titles
+        :param special: Include special (file, image, category, etc) links
+        :param interwiki: Include interwiki links
+        :return: The set of Link objects matching the specified filters
         """
-        links = {l for l in self.find_all(Link) if (special or not l.special) and (interwiki or not l.interwiki)}
+        links = {ln for ln in self.find_all(Link) if (special or not ln.special) and (interwiki or not ln.interwiki)}
         return set({link.title: link for link in links}.values()) if unique else links
 
 

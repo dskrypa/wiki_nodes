@@ -12,7 +12,8 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from copy import copy
-from functools import cached_property
+from functools import cached_property, reduce
+from operator import xor
 from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match, Any
 
 from wikitextparser import (
@@ -77,7 +78,7 @@ class BasicNode(Node):
         return f'<{self.__class__.__name__}({self.raw!r})>'
 
     def __hash__(self) -> int:
-        return hash((self.__class__, self.raw.string))
+        return reduce(xor, map(hash, (self.__class__, self.raw.string)))
 
     @property
     def is_basic(self) -> bool:
@@ -291,7 +292,7 @@ class Link(BasicNode):
         return self._str == other._str and self.source_site == other.source_site
 
     def __hash__(self) -> int:
-        return hash((self.__class__, self._str, self.source_site))
+        return reduce(xor, map(hash, (self.__class__, self._str, self.source_site)))
 
     def __lt__(self, other: 'Link') -> bool:
         return self.__cmp_tuple < other.__cmp_tuple
