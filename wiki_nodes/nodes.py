@@ -340,11 +340,9 @@ class Link(BasicNode):
 
     @cached_property
     def iw_key_title(self) -> tuple[str, str]:
-        title = self.title
-        if (root := self.root) and ':' in title:
+        if (root := self.root) and ':' in (title := self.title):
             if m := iw_community_link_match(title):
-                # noinspection PyTypeChecker
-                return tuple(m.groups())
+                return tuple(m.groups())  # noqa
             elif iw_map := root._interwiki_map:
                 prefix, iw_title = title.split(':', maxsplit=1)
                 if prefix in iw_map:
@@ -366,6 +364,21 @@ class Link(BasicNode):
     @cached_property
     def to_file(self) -> bool:
         return self.title.lower().startswith(('image:', 'file:'))
+
+    @cached_property
+    def url(self) -> Optional[str]:
+        if not (site := self.source_site) or not (title := self.title):
+            return None
+
+        mw_client = MediaWikiClient(site)
+        try:
+            iw_key, title = self.iw_key_title
+        except ValueError:
+            pass
+        else:
+            mw_client = mw_client.interwiki_client(iw_key)
+
+        return mw_client.url_for_article(title)
 
 
 class ListEntry(CompoundNode):
@@ -683,6 +696,10 @@ class Template(BasicNode, ContainerNode):
 
         if self.lc_name == 'abbr':          # [short, long]
             return [a.value for a in args]
+        elif self.lc_name == 'wp' and len(args) in (2, 3):  # {{WP|lang|title|text (optional)}}
+            vals = tuple(a.value for a in args)
+            lang, title = vals[:2]
+            return Link.from_title(f'wikipedia:{lang}:{title}', self.root, vals[2] if len(vals) == 3 else None)
         elif all(arg.positional for arg in args):
             if len(args) == 1:
                 raw_value = args[0].value or self._defaults.get(self.lc_name or '')
@@ -1413,3 +1430,6 @@ def wiki_attr_values(wiki_text: WikiText, attr: str, known_values: Mapping[str, 
             pass
     value = getattr(wiki_text, attr)
     return value() if hasattr(value, '__call__') else value
+
+
+from .http import MediaWikiClient  # noqa  # Down here due to circular dependency

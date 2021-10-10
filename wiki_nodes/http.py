@@ -27,7 +27,6 @@ from db_cache import TTLDBCache, DBCache
 from db_cache.utils import get_user_cache_dir
 from requests_client import RequestsClient
 from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
-from .page import WikiPage
 from .utils import partitioned
 
 __all__ = ['MediaWikiClient']
@@ -552,7 +551,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> dict[str, WikiPage]:
+    ) -> dict[str, 'WikiPage']:
         raw_pages = self.query_pages(titles, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         pages = {
             result_title: WikiPage(
@@ -570,7 +569,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> WikiPage:
+    ) -> 'WikiPage':
         data = self.query_page(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         page = WikiPage(
             data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
@@ -579,7 +578,7 @@ class MediaWikiClient(RequestsClient):
         return page
 
     @classmethod
-    def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> WikiPage:
+    def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> 'WikiPage':
         client = cls(article_url, nopath=True)
         return client.get_page(client.article_url_to_title(article_url), preserve_comments, no_cache=no_cache)
 
@@ -592,7 +591,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> tuple[dict[str, WikiPage], dict[str, Exception]]:
+    ) -> tuple[dict[str, 'WikiPage'], dict[str, Exception]]:
         """
         :param str title: A page title
         :param iterable sites: A list or other iterable that yields site host strings
@@ -628,7 +627,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> tuple[dict[str, dict[str, WikiPage]], dict[str, Exception]]:
+    ) -> tuple[dict[str, dict[str, 'WikiPage']], dict[str, Exception]]:
         """
         :param site_title_map: Mapping of {site|MediaWikiClient: list(titles)}
         :param preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
@@ -923,6 +922,9 @@ class WikiQuery:
         self._pages[title] = entry
         self.missing.discard(title)
         self._no_data.discard(title)
+
+
+from .page import WikiPage  # noqa  # Down here due to circular dependency
 
 
 if __name__ == '__main__':
