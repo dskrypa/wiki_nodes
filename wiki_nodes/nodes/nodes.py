@@ -14,6 +14,7 @@ from collections.abc import MutableMapping
 from copy import copy
 from functools import cached_property, reduce
 from operator import xor
+from os import environ
 from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match
 
 from wikitextparser import (
@@ -280,9 +281,12 @@ class Link(BasicNode):
     def __init__(self, raw: Union[str, WikiText, _Link], root: 'Root' = None):
         super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
         try:
-            self._orig = self.raw.wikilinks[0]                  # type: _Link
+            # TODO: remove isinstance/.wikilinks[0] after switching fully to new parsing
+            self._orig: _Link = self.raw if isinstance(self.raw, _Link) else self.raw.wikilinks[0]
         except IndexError:
-            log.error(f'Attempted to create Link from content that did not contain a link. Raw wiki text:\n{self.raw}')
+            raw_str = str(self.raw).strip()
+            raw_str = f'"""\n{raw_str}\n"""' if '\n' in raw_str else repr(raw_str)
+            log.error(f'Link init attempted with non-link content - raw content={self.raw!r} - raw text={raw_str}')
             raise
         self.title = ' '.join(self._orig.title.split())     # type: str     # collapse extra spaces
         self.text = self._orig.text                         # type: str
@@ -1180,4 +1184,7 @@ def iw_community_link_match(title: str) -> Optional[Match]:
 
 # Down here due to circular dependency
 from ..http import MediaWikiClient  # noqa
-from .parsing import as_node
+if environ.get('WIKI_NODES_NEW_PARSER', '0') == '1':
+    from .parsing_new import as_node  # noqa
+else:
+    from .parsing import as_node  # noqa

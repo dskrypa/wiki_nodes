@@ -10,7 +10,7 @@ from wikitextparser import WikiText
 
 from ..utils import IntervalCoverageMap, wiki_attr_values, short_repr
 
-__all__ = []
+__all__ = ['as_node']
 log = logging.getLogger(__name__)
 
 WTP_TYPE_METHOD_NODE_MAP = {
@@ -20,9 +20,8 @@ WTP_TYPE_METHOD_NODE_MAP = {
     'Tag': 'get_tags',          # Requires .get_tags() to be called before being in ._type_to_spans
     'Table': 'tables',          # Requires .tables to be accessed before being in ._type_to_spans
     'WikiList': 'get_lists',    # Requires .get_lists() to be called before being in ._type_to_spans
-    # 'WikiLink': 'wikilinks',
+    'WikiLink': 'wikilinks',
 }
-WTP_ACCESS_FIRST = {'Tag', 'Table', 'WikiList'}
 
 # as_node_counter = itertools.count()
 
@@ -62,7 +61,9 @@ def get_span_obj_map(wiki_text: WikiText, preserve_comments: bool = False, stric
     non_overlapping_spans = IntervalCoverageMap()
     for wtp_type, attr in WTP_TYPE_METHOD_NODE_MAP.items():
         attr_values = {obj.span: obj for obj in wiki_attr_values(wiki_text, attr)}
-        for span in map(tuple, wiki_text._subspans(wtp_type)):  # noqa
+        for a, b, re_match, matching_byte_array in wiki_text._subspans(wtp_type):
+            span = (a, b)
+            # log.debug(f'For {wtp_type=}, processing {span=} with {attr_values=}')
             obj = attr_values[span]
             if strict_tags and attr == 'get_tags':
                 obj_str = obj.string
@@ -81,23 +82,26 @@ def get_span_obj_map(wiki_text: WikiText, preserve_comments: bool = False, stric
 
     wt_str = wiki_text.string
     pos = 0
-    for (a, b) in sorted(non_overlapping_spans):
-        if a > pos:
-            if plain_str := wt_str[pos:a].strip():
-                non_overlapping_spans[(pos, a)] = ('string', plain_str)
+    for a, b in sorted(non_overlapping_spans):
+        if a > pos and (plain_str := wt_str[pos:a].strip()):
+            non_overlapping_spans[(pos, a)] = ('string', plain_str)
         pos = b
 
-    if not non_overlapping_spans:
-        if plain_str := wt_str.strip():
-            non_overlapping_spans[(0, len(wt_str))] = ('string', plain_str)
+    if not non_overlapping_spans and (plain_str := wt_str.strip()):
+        non_overlapping_spans[(0, len(wt_str))] = ('string', plain_str)
 
     return non_overlapping_spans
 
 
 # Down here due to circular dependency
-from .nodes import BasicNode, CompoundNode, Tag, List, Table, Template, Root, String, Link
+from .nodes import BasicNode, CompoundNode, Tag, List, Table, Template, Root, String, Link  # noqa
 
 WTP_ATTR_TO_NODE_MAP = {
-    'get_tags': Tag, 'templates': Template, 'tables': Table, 'get_lists': List, 'comments': BasicNode,
-    # 'wikilinks': Link, 'string': String
+    'get_tags': Tag,
+    'templates': Template,
+    'tables': Table,
+    'get_lists': List,
+    'comments': BasicNode,
+    'wikilinks': Link,
+    'string': String,
 }

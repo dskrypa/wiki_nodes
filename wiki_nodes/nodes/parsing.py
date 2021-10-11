@@ -20,7 +20,6 @@ WTP_TYPE_METHOD_NODE_MAP = {
     'Tag': 'get_tags',          # Requires .get_tags() to be called before being in ._type_to_spans
     'Table': 'tables',          # Requires .tables to be accessed before being in ._type_to_spans
     'WikiList': 'get_lists',    # Requires .get_lists() to be called before being in ._type_to_spans
-    # 'WikiLink': 'wikilinks',
 }
 WTP_ACCESS_FIRST = {'Tag', 'Table', 'WikiList'}
 
@@ -201,6 +200,5 @@ def extract_links(raw, root: 'Root' = None) -> list[Union['Link', 'String']]:
 from .nodes import BasicNode, CompoundNode, Tag, String, Link, List, Table, Template, Root
 
 WTP_ATTR_TO_NODE_MAP = {
-    'get_tags': Tag, 'templates': Template, 'tables': Table, 'get_lists': List, 'comments': BasicNode,
-    # 'wikilinks': Link, 'string': String
+    'get_tags': Tag, 'templates': Template, 'tables': Table, 'get_lists': List, 'comments': BasicNode
 }

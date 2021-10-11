@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from pathlib import Path
-from setuptools import setup
+from setuptools import setup, find_packages
 
 project_root = Path(__file__).resolve().parent
 
@@ -22,7 +22,7 @@ setup(
     long_description=long_description,
     url=about['__url__'],
     project_urls={'Source': about['__url__']},
-    packages=['wiki_nodes'],
+    packages=find_packages(),
     classifiers=[
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3',
