@@ -4,9 +4,19 @@
 
 import re
 from collections import UserDict
-from typing import TypeVar, Sequence, Iterator
+from typing import TYPE_CHECKING, TypeVar, Sequence, Iterator, Mapping, Any
 
-__all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap']
+if TYPE_CHECKING:
+    from wikitextparser import WikiText
+
+__all__ = [
+    'strip_style',
+    'partitioned',
+    'ClearableCachedPropertyMixin',
+    'IntervalCoverageMap',
+    'short_repr',
+    'wiki_attr_values',
+]
 T = TypeVar('T')
 
 
@@ -102,3 +112,21 @@ class IntervalCoverageMap(UserDict):
                 for pair in to_remove:
                     del self.data[pair]
             self.data[(a, b)] = value
+
+
+def short_repr(text) -> str:
+    text = str(text)
+    if len(text) <= 50:
+        return repr(text)
+    else:
+        return repr(f'{text[:24]}...{text[-23:]}')
+
+
+def wiki_attr_values(wiki_text: 'WikiText', attr: str, known_values: Mapping[str, Any] = None):
+    if known_values:
+        try:
+            return known_values[attr]
+        except KeyError:
+            pass
+    value = getattr(wiki_text, attr)
+    return value() if hasattr(value, '__call__') else value
