@@ -26,8 +26,8 @@ from ..exceptions import NoLinkSite, NoLinkTarget
 from ..utils import strip_style, ClearableCachedPropertyMixin, short_repr
 
 __all__ = [
-    'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List', 'Table',
-    'Template', 'Root', 'Section', 'TableSeparator', 'N', 'AnyNode'
+    'Node', 'BasicNode', 'CompoundNode', 'ContainerNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List',
+    'Table', 'Template', 'Root', 'Section', 'TableSeparator', 'N', 'AnyNode'
 ]
 log = logging.getLogger(__name__)
 
