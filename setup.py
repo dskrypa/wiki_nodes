@@ -22,7 +22,7 @@ setup(
     long_description=long_description,
     url=about['__url__'],
     project_urls={'Source': about['__url__']},
-    packages=find_packages(),
+    packages=find_packages(include='wiki_nodes*'),
     classifiers=[
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3',
