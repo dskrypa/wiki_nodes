@@ -47,8 +47,10 @@ def as_node(
                 nodes.append(WTP_ATTR_TO_NODE_MAP[attr](raw_obj, root, preserve_comments))
 
         if len(nodes) == 1:
+            # log.debug(f'[{c}] Returning first node={nodes[0]}')
             return nodes[0]
         else:
+            # log.debug(f'[{c}] Returning CompoundNode with {len(nodes)} children={nodes}')
             node = CompoundNode(wiki_text, root, preserve_comments)
             node.children.extend(nodes)
             return node
@@ -87,8 +89,9 @@ def get_span_obj_map(wiki_text: WikiText, preserve_comments: bool = False, stric
             non_overlapping_spans[(pos, a)] = ('string', plain_str)
         pos = b
 
-    if not non_overlapping_spans and (plain_str := wt_str.strip()):
-        non_overlapping_spans[(0, len(wt_str))] = ('string', plain_str)
+    wt_len = len(wt_str)
+    if (pos < wt_len or not non_overlapping_spans) and (plain_str := wt_str[pos:].strip()):
+        non_overlapping_spans[(pos, wt_len)] = ('string', plain_str)
 
     return non_overlapping_spans
 

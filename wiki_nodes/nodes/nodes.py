@@ -56,7 +56,7 @@ class Node(ClearableCachedPropertyMixin):
     def __bool__(self) -> bool:
         return bool(self.raw.string)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if other.__class__ != self.__class__:
             return False
         return self.raw.string == other.raw.string
@@ -118,6 +118,11 @@ class CompoundNode(Node, ContainerNode):
 
     def __bool__(self) -> bool:
         return bool(self.children)
+
+    def __eq__(self, other) -> bool:
+        if other.__class__ != self.__class__:
+            return False
+        return self.raw.string == other.raw.string and self.children == other.children
 
     @property
     def is_basic(self) -> bool:

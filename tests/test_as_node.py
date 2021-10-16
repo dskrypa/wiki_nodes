@@ -11,7 +11,7 @@ from unittest import main, TestCase
 environ['WIKI_NODES_NEW_PARSER'] = '1'  # This may cause problems if run in a single process with other tests...
 
 sys.path.append(Path(__file__).parents[1].as_posix())
-from wiki_nodes import List, as_node, Link
+from wiki_nodes import as_node, Link, List, String, CompoundNode
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,12 @@ class NodeParsingTest(TestCase):
     def test_link(self):
         node = as_node("""[[test]]""")
         self.assertIsInstance(node, Link)
+
+    def test_str_link_str(self):
+        node = as_node(""""[[title|text]]" - 3:30""")
+        expected = CompoundNode('"[[title|text]]" - 3:30')
+        expected.children.extend([String('"'), Link.from_title('title', text='text'), String('" - 3:30')])
+        self.assertEqual(node, expected)
 
 
 if __name__ == '__main__':
