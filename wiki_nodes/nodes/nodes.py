@@ -14,7 +14,6 @@ from collections.abc import MutableMapping
 from copy import copy
 from functools import cached_property, reduce
 from operator import xor
-from os import environ
 from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match
 
 from wikitextparser import (
@@ -1189,7 +1188,4 @@ def iw_community_link_match(title: str) -> Optional[Match]:
 
 # Down here due to circular dependency
 from ..http import MediaWikiClient  # noqa
-if environ.get('WIKI_NODES_NEW_PARSER', '0') == '1':
-    from .parsing_new import as_node  # noqa
-else:
-    from .parsing import as_node  # noqa
+from .parsing import as_node  # noqa

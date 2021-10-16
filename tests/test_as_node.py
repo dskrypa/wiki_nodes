@@ -2,13 +2,9 @@
 
 import logging
 import sys
-from os import environ
 from pathlib import Path
 from unittest import main, TestCase
 # from unittest.mock import MagicMock, patch
-
-# TODO: Remove env var here after fully switching to new parser
-environ['WIKI_NODES_NEW_PARSER'] = '1'  # This may cause problems if run in a single process with other tests...
 
 sys.path.append(Path(__file__).parents[1].as_posix())
 from wiki_nodes import as_node, Link, List, String, CompoundNode
