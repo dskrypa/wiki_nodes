@@ -1125,7 +1125,7 @@ class Section(Node, ContainerNode):
             formatted.append(f'{" " * indent}{self}')
             indent += 4
             if mode == 'content':
-                formatted.append(self.content.pformat(indent))
+                formatted.append('None' if self.content is None else self.content.pformat(indent))
             elif mode == 'processed':
                 formatted.append(self.processed().pformat(indent))
 
