@@ -285,7 +285,6 @@ class Link(BasicNode):
     def __init__(self, raw: Union[str, WikiText, _Link], root: 'Root' = None):
         super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
         try:
-            # TODO: remove isinstance/.wikilinks[0] after switching fully to new parsing
             self._orig: _Link = self.raw if isinstance(self.raw, _Link) else self.raw.wikilinks[0]
         except IndexError:
             raw_str = str(self.raw).strip()
