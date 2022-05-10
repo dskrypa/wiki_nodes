@@ -4,9 +4,7 @@ from pathlib import Path
 from setuptools import setup, find_packages
 
 project_root = Path(__file__).resolve().parent
-
-with project_root.joinpath('readme.rst').open('r', encoding='utf-8') as f:
-    long_description = f.read()
+long_description = project_root.joinpath('readme.rst').read_text('utf-8')
 
 about = {}
 with project_root.joinpath('wiki_nodes', '__version__.py').open('r', encoding='utf-8') as f:
@@ -30,8 +28,8 @@ setup(
     ],
     python_requires='~=3.9',
     install_requires=[
-        'requests_client@ git+git://github.com/dskrypa/requests_client',  # >= 2021.5.2 (doesn't support URL + version)
-        'db_cache@ git+git://github.com/dskrypa/db_cache',
+        'requests_client@ git+https://github.com/dskrypa/requests_client',
+        'db_cache@ git+https://github.com/dskrypa/db_cache',
         'wikitextparser',
         'requests'
     ],
