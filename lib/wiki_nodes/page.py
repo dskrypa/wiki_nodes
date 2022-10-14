@@ -9,14 +9,15 @@ Notes:\n
 :author: Doug Skrypa
 """
 
+from __future__ import annotations
+
 import logging
-from functools import cached_property, reduce
-from operator import xor
 from typing import TYPE_CHECKING, Optional, Union, Iterable, Mapping
 
 from wikitextparser import WikiText
 
 from .nodes import Root, Template, String, CompoundNode, Tag, Link
+from .utils import cached_property
 
 if TYPE_CHECKING:
     from .http import MediaWikiClient
@@ -36,7 +37,7 @@ class WikiPage(Root):
         categories: Iterable[str],
         preserve_comments: bool = False,
         interwiki_map: Mapping[str, str] = None,
-        client: 'MediaWikiClient' = None,
+        client: MediaWikiClient = None,
     ):
         """
         :param title: The page title
@@ -56,27 +57,24 @@ class WikiPage(Root):
         return f'<{type(self).__name__}[{self.title!r} @ {self.site}]>'
 
     @cached_property
-    def _sort_key(self):
+    def _sort_key(self) -> tuple[bool, str, Optional[str]]:
         return self.is_disambiguation, self.title, self.site
 
-    def __eq__(self, other: 'WikiPage') -> bool:
+    def __eq__(self, other: WikiPage) -> bool:
         if not isinstance(other, WikiPage):
             return False
         return self._sort_key == other._sort_key
 
     def __hash__(self) -> int:
-        return reduce(xor, map(hash, (self.__class__, self.site, self.title, self.raw.string)))
+        return hash(self.__class__) ^ hash(self.site) ^ hash(self.title) ^ hash(self.raw.string)
 
-    def __lt__(self, other: 'WikiPage') -> bool:
+    def __lt__(self, other: WikiPage) -> bool:
         return self._sort_key < other._sort_key
 
     @cached_property
     def categories(self) -> set[str]:
         """The lower-case categories for this page, with ignored prefixes (if applicable) filtered out"""
-        categories = {
-            cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)
-        }
-        return categories
+        return {cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)}
 
     @cached_property
     def similar_name_link(self) -> Optional[Link]:
@@ -161,7 +159,7 @@ class WikiPage(Root):
                 #         from collections import Counter
                 #         types = Counter(n.__class__.__name__ for n in node)
                 #         log.debug(f' > Node contents: {json.dumps(types, sort_keys=True, indent=4)}')
-        except Exception:
+        except Exception:  # noqa
             error = True
             log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
 
@@ -174,7 +172,7 @@ class WikiPage(Root):
                     elif found_infobox and type(node) is CompoundNode and starts_with_basic(node):
                         intro = node
                         break
-            except Exception:
+            except Exception:  # noqa
                 log.log(9, f'Error iterating over first section content of {self}:', exc_info=True)
 
         if strip_refs and intro.__class__ is CompoundNode:

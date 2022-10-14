@@ -2,6 +2,8 @@
 
 """
 
+from __future__ import annotations
+
 # import itertools
 import logging
 from typing import Union
@@ -27,7 +29,7 @@ WTP_TYPE_METHOD_NODE_MAP = {
 
 
 def as_node(
-    text: Union[str, WikiText, None], root: 'Root' = None, preserve_comments: bool = False, strict_tags: bool = False
+    text: Union[str, WikiText, None], root: Root = None, preserve_comments: bool = False, strict_tags: bool = False
 ):
     # c = next(as_node_counter)
     # log.debug(f'[{c}] as_node({short_repr(text)})', extra={'color': 13})

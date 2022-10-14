@@ -7,13 +7,13 @@ This is still a work in process - some data types are not fully handled yet, and
 :author: Doug Skrypa
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from copy import copy
-from functools import cached_property, reduce
-from operator import xor
 from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match
 
 from wikitextparser import (
@@ -22,7 +22,7 @@ from wikitextparser import (
 )
 
 from ..exceptions import NoLinkSite, NoLinkTarget
-from ..utils import strip_style, ClearableCachedPropertyMixin, short_repr
+from ..utils import strip_style, ClearableCachedPropertyMixin, cached_property
 
 __all__ = [
     'Node', 'BasicNode', 'CompoundNode', 'ContainerNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List',
@@ -39,7 +39,9 @@ _NotSet = object()
 
 
 class Node(ClearableCachedPropertyMixin):
-    def __init__(self, raw: Union[str, WikiText], root: 'Root' = None, preserve_comments: bool = False):
+    __slots__ = ('raw', 'preserve_comments', 'root')
+
+    def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False):
         if isinstance(raw, str):
             raw = WikiText(raw)
         self.raw = raw
@@ -75,11 +77,13 @@ class Node(ClearableCachedPropertyMixin):
 
 
 class BasicNode(Node):
+    __slots__ = ()
+
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.raw!r})>'
 
     def __hash__(self) -> int:
-        return reduce(xor, map(hash, (self.__class__, self.raw.string)))
+        return hash(self.__class__) ^ hash(self.raw.string)
 
     @property
     def is_basic(self) -> bool:
@@ -87,6 +91,8 @@ class BasicNode(Node):
 
 
 class ContainerNode(ABC):
+    __slots__ = ()
+
     @abstractmethod
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         raise NotImplementedError
@@ -164,15 +170,15 @@ class CompoundNode(Node, ContainerNode):
 
     @classmethod
     def from_nodes(
-        cls, nodes: Iterable[Node], root: 'Root' = None, preserve_comments: bool = False, delim: str = '\n'
-    ) -> 'CompoundNode':
+        cls, nodes: Iterable[Node], root: Root = None, preserve_comments: bool = False, delim: str = '\n'
+    ) -> CompoundNode:
         node = cls(delim.join(n.raw.string for n in nodes), root, preserve_comments)
         node.children.extend(nodes)
         return node
 
 
 class MappingNode(CompoundNode, MutableMapping):
-    def __init__(self, raw: Union[str, WikiText], root: 'Root' = None, preserve_comments: bool = False, content=None):
+    def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False, content=None):
         super().__init__(raw, root, preserve_comments)
         if content:
             self.children.update(content)
@@ -210,7 +216,7 @@ class MappingNode(CompoundNode, MutableMapping):
 
 
 class Tag(BasicNode, ContainerNode):
-    def __init__(self, raw: Union[str, WikiText, _Tag], root: 'Root' = None, preserve_comments: bool = False):
+    def __init__(self, raw: Union[str, WikiText, _Tag], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -260,7 +266,7 @@ class Tag(BasicNode, ContainerNode):
 
 
 class String(BasicNode):
-    def __init__(self, raw: Union[str, WikiText], root: 'Root' = None):
+    def __init__(self, raw: Union[str, WikiText], root: Root = None):
         super().__init__(raw, root)
         self.value = strip_style(self.raw.string)
 
@@ -274,7 +280,7 @@ class String(BasicNode):
     def __str__(self) -> str:
         return self.value
 
-    def __add__(self, other) -> 'String':
+    def __add__(self, other) -> String:
         return String(self.raw.string + other.raw.string, self.root)
 
     def __bool__(self) -> bool:
@@ -282,7 +288,7 @@ class String(BasicNode):
 
 
 class Link(BasicNode):
-    def __init__(self, raw: Union[str, WikiText, _Link], root: 'Root' = None):
+    def __init__(self, raw: Union[str, WikiText, _Link], root: Root = None):
         super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
         try:
             self._orig: _Link = self.raw if isinstance(self.raw, _Link) else self.raw.wikilinks[0]
@@ -297,14 +303,14 @@ class Link(BasicNode):
     # region Link low level methods
 
     def __hash__(self) -> int:
-        return reduce(xor, map(hash, (self.__class__, self._str, self.source_site)))
+        return hash(self.__class__) ^ hash(self._str) ^ hash(self.source_site)
 
-    def __eq__(self, other: 'Link') -> bool:
+    def __eq__(self, other: Link) -> bool:
         if not isinstance(other, Link):
             return False
         return self._str == other._str and self.source_site == other.source_site
 
-    def __lt__(self, other: 'Link') -> bool:
+    def __lt__(self, other: Link) -> bool:
         return self.__cmp_tuple < other.__cmp_tuple
 
     def __str__(self) -> str:
@@ -334,7 +340,7 @@ class Link(BasicNode):
     # endregion
 
     @classmethod
-    def from_title(cls, title: str, root: 'Root' = None, text: str = None) -> 'Link':
+    def from_title(cls, title: str, root: Root = None, text: str = None) -> Link:
         return cls(cls._format(title, text), root)
 
     @cached_property
@@ -390,7 +396,7 @@ class Link(BasicNode):
             return mw_client.url_for_article(title)
 
     @cached_property
-    def client_and_title(self) -> tuple['MediaWikiClient', str]:
+    def client_and_title(self) -> tuple[MediaWikiClient, str]:
         """The :class:`MediaWikiClient<.http.MediaWikiClient>` and title to request from that client for this link"""
         if not (site := self.source_site):
             raise NoLinkSite(self)
@@ -412,7 +418,7 @@ class Link(BasicNode):
 
 
 class ListEntry(CompoundNode):
-    def __init__(self, raw: Union[str, WikiText], root: 'Root' = None, preserve_comments: bool = False, _value=None):
+    def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False, _value=None):
         super().__init__(raw, root, preserve_comments)
         if _value:
             self.value = _value
@@ -445,20 +451,20 @@ class ListEntry(CompoundNode):
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
     @cached_property
-    def sub_list(self) -> Optional['List']:
+    def sub_list(self) -> Optional[List]:
         if not self._children:
             return None
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
         return List(content, self.root, self.preserve_comments)
 
     @property
-    def children(self) -> list['ListEntry']:
+    def children(self) -> list[ListEntry]:
         sub_list = self.sub_list
         if not sub_list:
             return []
         return sub_list.children
 
-    def extend(self, list_node: 'List'):
+    def extend(self, list_node: List):
         if self._children is None:
             self.__dict__['sub_list'] = list_node
         else:
@@ -502,7 +508,7 @@ class ListEntry(CompoundNode):
 
 
 class List(CompoundNode):
-    def __init__(self, raw: Union[str, WikiText, _List], root: 'Root' = None, preserve_comments: bool = False):
+    def __init__(self, raw: Union[str, WikiText, _List], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -516,7 +522,7 @@ class List(CompoundNode):
     def children(self) -> list[ListEntry]:
         return [ListEntry(val, self.root, self.preserve_comments) for val in map(str.strip, self.raw.fullitems)]
 
-    def extend(self, list_node: 'List'):
+    def extend(self, list_node: List):
         self.children.extend(list_node.children)
 
     def iter_flat(self) -> Iterator[N]:
@@ -557,7 +563,7 @@ class List(CompoundNode):
         return data
 
     def _as_multiline_dict(self, node_fn: Callable, _add_kv: Callable):
-        ctrl_pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
+        ctrl_pat_match = re.compile(r'^([*#:;]+)\s*(.*)$', re.DOTALL).match
         last_key = None
         last_val = None
         for line in map(str.strip, self.raw.fullitems):
@@ -586,7 +592,7 @@ class List(CompoundNode):
             _add_kv(node_fn(last_key[1]), None)
 
     def _as_inline_dict(self, node_fn: Callable, _add_kv: Callable, sep: str):
-        ctrl_pat_match = re.compile('^([*#:;]+)\s*(.*)$', re.DOTALL).match
+        ctrl_pat_match = re.compile(r'^([*#:;]+)\s*(.*)$', re.DOTALL).match
         style_pat_match = re.compile(r'^(\'{2,5}[^' + sep + r']+)' + sep + r'\s*(\'{2,5})(.*)', re.DOTALL).match
         reformatter = '{{}}{{}}{} {{}}'.format(sep)
 
@@ -606,7 +612,7 @@ class List(CompoundNode):
 class Table(CompoundNode):
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
 
-    def __init__(self, raw: Union[str, WikiText, _Table], root: 'Root' = None, preserve_comments: bool = False):
+    def __init__(self, raw: Union[str, WikiText, _Table], root: Root = None, preserve_comments: bool = False):
         raw = self._rowspan_with_template.sub(r'\1 | {', raw.string if isinstance(raw, WikiText) else raw)
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
@@ -654,7 +660,7 @@ class Table(CompoundNode):
         return headers
 
     @cached_property
-    def children(self) -> list[Union['TableSeparator', 'MappingNode']]:
+    def children(self) -> list[Union[TableSeparator, MappingNode]]:
         headers = self.headers
         node_fn = lambda cell: as_node(cell.value.strip(), self.root, self.preserve_comments) if cell else cell
         processed = []
@@ -668,6 +674,8 @@ class Table(CompoundNode):
 
 
 class TableSeparator:
+    __slots__ = ('value',)
+
     def __init__(self, value):
         self.value = value
 
@@ -684,7 +692,7 @@ class Template(BasicNode, ContainerNode):
     _basic_names = {'n/a', 'small'}
     _lang_names = {'ko-hhrm'}
 
-    def __init__(self, raw: Union[str, WikiText, _Template], root: 'Root' = None, preserve_comments: bool = False):
+    def __init__(self, raw: Union[str, WikiText, _Template], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
             try:
@@ -804,10 +812,10 @@ class Root(Node):
         self.site = site                                        # type: Optional[str]
         self._interwiki_map = interwiki_map                     # type: Optional[Mapping[str, str]]
 
-    def __getitem__(self, item: str) -> 'Section':
+    def __getitem__(self, item: str) -> Section:
         return self.sections[item]
 
-    def __iter__(self) -> Iterator['Section']:
+    def __iter__(self) -> Iterator[Section]:
         root = self.sections
         yield root
         yield from root
@@ -826,7 +834,7 @@ class Root(Node):
         return self.sections.find_all(node_cls, recurse, **kwargs)
 
     @cached_property
-    def sections(self) -> 'Section':
+    def sections(self) -> Section:
         sections = iter(self.raw.sections)
         root = Section(next(sections), self, self.preserve_comments)
         last_by_level = {0: root}
@@ -845,7 +853,7 @@ class Section(Node, ContainerNode):
     def __init__(
         self,
         raw: Union[str, WikiText, _Section],
-        root: Optional['Root'],
+        root: Optional[Root],
         preserve_comments: bool = False,
         _index: int = 0,
     ):
@@ -862,10 +870,10 @@ class Section(Node, ContainerNode):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
-    def __getitem__(self, item: str) -> 'Section':
+    def __getitem__(self, item: str) -> Section:
         return self.children[item]
 
-    def __iter__(self) -> Iterator['Section']:
+    def __iter__(self) -> Iterator[Section]:
         return iter(self.children.values())
 
     def _formatted_title(self) -> str:
@@ -883,7 +891,7 @@ class Section(Node, ContainerNode):
             return max(c.depth for c in self.children.values()) + 1
         return 0
 
-    def find(self, title: str, default: None = _NotSet) -> Optional['Section']:
+    def find(self, title: str, default: None = _NotSet) -> Optional[Section]:
         """Find the subsection with the given title"""
         try:
             return self.children[title]
