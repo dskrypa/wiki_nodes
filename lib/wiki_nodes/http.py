@@ -5,6 +5,8 @@ requests.
 :author: Doug Skrypa
 """
 
+from __future__ import annotations
+
 import logging
 import pickle
 import re
@@ -13,7 +15,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime
 from distutils.version import LooseVersion
-from functools import cached_property
 from io import BytesIO
 from json import JSONDecodeError, dumps
 from pathlib import Path
@@ -27,17 +28,88 @@ from db_cache import TTLDBCache, DBCache
 from db_cache.utils import get_user_cache_dir
 from requests_client import RequestsClient
 from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
-from .utils import partitioned
+from .utils import partitioned, cached_property
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
 qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
+
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
+
 PageEntry = dict[str, Union[str, list[str], None]]
 TitleDataMap = dict[str, dict[str, Any]]
 TitleEntryMap = dict[str, PageEntry]
 Titles = Union[str, Iterable[str]]
+
+
+class WikiCache:
+    __slots__ = ('ttl', 'base_dir', 'img_dir', 'pages', 'search_titles', 'searches', 'normalized_titles', 'misc')
+
+    ttl: int
+    pages: TTLDBCache
+    search_titles: TTLDBCache
+    searches: TTLDBCache
+    normalized_titles: DBCache
+    misc: TTLDBCache
+
+    def __init__(self, host: str, ttl: int = 21_600):  # 3600 * 6 (6 hours)
+        self.ttl = ttl
+        self.base_dir = Path(get_user_cache_dir(f'wiki/{host}'))
+        self.reset_caches(False)
+        self.img_dir = Path(get_user_cache_dir(f'wiki/{host}/images'))
+
+    def reset_caches(self, hard: bool = False):
+        cache_dir = self.base_dir
+        if hard:
+            for path in cache_dir.iterdir():
+                if path.is_file() and path.suffix == '.db':
+                    log.debug(f'Deleting cache file: {path.as_posix()}')
+                    path.unlink()
+
+        self.pages = TTLDBCache('pages', cache_dir=cache_dir, ttl=self.ttl)
+        self.search_titles = TTLDBCache('search_titles', cache_dir=cache_dir, ttl=self.ttl)
+        self.searches = TTLDBCache('searches', cache_dir=cache_dir, ttl=self.ttl)
+        # All keys in normalized_titles should be normalized to upper case to improve matching and prevent dupes
+        self.normalized_titles = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')
+        self.misc = TTLDBCache('misc', cache_dir=cache_dir, ttl=self.ttl)
+
+    def store_response(self, resp: Response):
+        now = datetime.now()
+        resp_dir = self.base_dir.joinpath('responses', now.strftime('%Y-%m-%d'))
+        if not resp_dir.exists():
+            resp_dir.mkdir(parents=True)
+        resp_dir.joinpath(f'{now.timestamp()}.url').write_text(resp.url + '\n', encoding='utf-8')
+        with resp_dir.joinpath(f'{now.timestamp()}.pkl').open('wb') as f:
+            pickle.dump(resp, f)
+
+    def get_misc(self, group: str, titles: Titles) -> tuple[list[str], dict[str, Any]]:
+        titles = [titles] if isinstance(titles, str) else titles
+        needed = []
+        found = {}
+        for title in titles:
+            try:
+                found[title] = self.misc[(group, normalize(title))]
+            except KeyError:
+                needed.append(title)
+        # log.debug(f'Found for {group=} cached={found.keys()} {needed=}')
+        return needed, found
+
+    def store_misc(self, group: str, data: Mapping[str, Any]):
+        # log.debug(f'Storing for {group=} keys={data.keys()}')
+        self.misc.update({(group, normalize(title)): value for title, value in data.items()})
+
+    def get_image(self, name: Optional[str]) -> bytes:
+        if name:
+            path = self.img_dir.joinpath(name)
+            if path.exists():
+                log.debug(f'Found cached image for {name=}')
+                return path.read_bytes()
+        raise KeyError(name)
+
+    def store_image(self, name: Optional[str], data: bytes):
+        if name:
+            self.img_dir.joinpath(name).write_bytes(data)
 
 
 class MediaWikiClient(RequestsClient):
@@ -67,71 +139,11 @@ class MediaWikiClient(RequestsClient):
                 self.path_prefix = 'w'
             if MediaWikiClient._siteinfo_cache is None:
                 MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
-            self._base_cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}'))
-            self._ttl = ttl
-            self.reset_caches(False)
-            self._image_cache_dir = Path(get_user_cache_dir(f'wiki/{self.host}/images'))
+            self._cache = WikiCache(self.host, ttl)
             self.__initialized = True
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.host})>'
-
-    # region Cache Methods
-
-    # noinspection PyAttributeOutsideInit
-    def reset_caches(self, hard: bool = False):
-        cache_dir = self._base_cache_dir
-        if hard:
-            for path in cache_dir.iterdir():
-                if path.is_file() and path.suffix == '.db':
-                    log.debug(f'Deleting cache file: {path.as_posix()}')
-                    path.unlink()
-
-        self._page_cache = TTLDBCache('pages', cache_dir=cache_dir, ttl=self._ttl)
-        self._search_title_cache = TTLDBCache('search_titles', cache_dir=cache_dir, ttl=self._ttl)
-        self._search_cache = TTLDBCache('searches', cache_dir=cache_dir, ttl=self._ttl)
-        # All keys in _norm_title_cache should be normalized to upper case to improve matching and prevent dupes
-        self._norm_title_cache = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')  # noqa
-        self._misc_cache = TTLDBCache('misc', cache_dir=cache_dir, ttl=self._ttl)
-
-    def __cache_response(self, resp: Response):
-        now = datetime.now()
-        resp_dir = self._base_cache_dir.joinpath('responses', now.strftime('%Y-%m-%d'))
-        if not resp_dir.exists():
-            resp_dir.mkdir(parents=True)
-        resp_dir.joinpath(f'{now.timestamp()}.url').write_text(resp.url + '\n', encoding='utf-8')
-        with resp_dir.joinpath(f'{now.timestamp()}.pkl').open('wb') as f:
-            pickle.dump(resp, f)
-
-    def _get_misc_cached(self, group: str, titles: Titles) -> tuple[list[str], dict[str, Any]]:
-        titles = [titles] if isinstance(titles, str) else titles
-        needed = []
-        found = {}
-        for title in titles:
-            try:
-                found[title] = self._misc_cache[(group, normalize(title))]
-            except KeyError:
-                needed.append(title)
-        # log.debug(f'Found for {group=} cached={found.keys()} {needed=}')
-        return needed, found
-
-    def _store_misc_cached(self, group: str, data: Mapping[str, Any]):
-        # log.debug(f'Storing for {group=} keys={data.keys()}')
-        self._misc_cache.update({(group, normalize(title)): value for title, value in data.items()})
-
-    def _get_cached_image(self, name: Optional[str]) -> bytes:
-        if name:
-            path = self._image_cache_dir.joinpath(name)
-            if path.exists():
-                log.debug(f'Found cached image for {name=}')
-                return path.read_bytes()
-        raise KeyError(name)
-
-    def _store_cached_image(self, name: Optional[str], data: bytes):
-        if name:
-            self._image_cache_dir.joinpath(name).write_bytes(data)
-
-    # endregion
 
     @cached_property
     def siteinfo(self) -> dict[str, Any]:
@@ -143,10 +155,10 @@ class MediaWikiClient(RequestsClient):
             resp = self.get('api.php', params=params)  # type: Response
             try:
                 self._siteinfo_cache[self.host] = siteinfo = resp.json()['query']
-            except JSONDecodeError as e:
+            except JSONDecodeError:
                 site = None
                 if 'Not_a_valid_community' in resp.url:
-                    site = parse_qs(urlparse(resp.url).params).get('from')
+                    site = parse_qs(urlparse(resp.url).params).get('from')  # noqa
                 site = site or self.host
                 raise InvalidWikiError(f'Invalid site: {site!r}')
             return siteinfo
@@ -176,7 +188,7 @@ class MediaWikiClient(RequestsClient):
         iw_map.update(self.lc_interwiki_map)
         return iw_map
 
-    def interwiki_client(self, iw_map_key: str) -> Optional['MediaWikiClient']:
+    def interwiki_client(self, iw_map_key: str) -> Optional[MediaWikiClient]:
         if iw_map_key.startswith('w:c:'):
             community = iw_map_key.rsplit(':', 1)[-1]
             iw_map_key = 'w'
@@ -286,7 +298,7 @@ class MediaWikiClient(RequestsClient):
         params = self._update_params(params)
         resp = self.get('api.php', params=params)
         if self._pickle_queries:
-            self.__cache_response(resp)
+            self._cache.store_response(resp)
         if no_parse:
             return resp.json()
         parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
@@ -303,7 +315,7 @@ class MediaWikiClient(RequestsClient):
 
             resp = self.get('api.php', params=continue_params)
             if self._pickle_queries:
-                self.__cache_response(resp)
+                self._cache.store_response(resp)
             _parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
             # log.debug(f'From {resp.url=} - _parsed.keys()={_parsed.keys()}')
             for title, data in _parsed.items():
@@ -527,8 +539,9 @@ class MediaWikiClient(RequestsClient):
         :return: The parsed response
         """
         lc_query = f'{search_type}::{query.lower()}'
+        cache = self._cache.searches
         try:
-            results = self._search_cache[lc_query]
+            results = cache[lc_query]
         except KeyError:
             params = {
                 # 'srprop': ['timestamp', 'snippet', 'redirecttitle', 'categorysnippet']
@@ -537,7 +550,8 @@ class MediaWikiClient(RequestsClient):
                 params['srwhat'] = search_type
             if offset is not None:
                 params['sroffset'] = offset
-            self._search_cache[lc_query] = results = self.query(list='search', srsearch=query, srlimit=limit, **params)
+            cache[lc_query] = results = self.query(list='search', srsearch=query, srlimit=limit, **params)
+
         return results
 
     # endregion
@@ -551,7 +565,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> dict[str, 'WikiPage']:
+    ) -> dict[str, WikiPage]:
         raw_pages = self.query_pages(titles, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         pages = {
             result_title: WikiPage(
@@ -569,7 +583,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> 'WikiPage':
+    ) -> WikiPage:
         data = self.query_page(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         page = WikiPage(
             data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
@@ -578,7 +592,7 @@ class MediaWikiClient(RequestsClient):
         return page
 
     @classmethod
-    def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> 'WikiPage':
+    def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> WikiPage:
         client = cls(article_url, nopath=True)
         return client.get_page(client.article_url_to_title(article_url), preserve_comments, no_cache=no_cache)
 
@@ -591,7 +605,7 @@ class MediaWikiClient(RequestsClient):
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> tuple[dict[str, 'WikiPage'], dict[str, Exception]]:
+    ) -> tuple[dict[str, WikiPage], dict[str, Exception]]:
         """
         :param str title: A page title
         :param iterable sites: A list or other iterable that yields site host strings
@@ -622,12 +636,12 @@ class MediaWikiClient(RequestsClient):
     @classmethod
     def get_multi_site_pages(
         cls,
-        site_title_map: Mapping[Union[str, 'MediaWikiClient'], Iterable[str]],
+        site_title_map: Mapping[Union[str, MediaWikiClient], Iterable[str]],
         preserve_comments: bool = False,
         search: bool = False,
         no_cache: bool = False,
         gsrwhat: str = 'nearmatch',
-    ) -> tuple[dict[str, dict[str, 'WikiPage']], dict[str, Exception]]:
+    ) -> tuple[dict[str, dict[str, WikiPage]], dict[str, Exception]]:
         """
         :param site_title_map: Mapping of {site|MediaWikiClient: list(titles)}
         :param preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
@@ -666,11 +680,11 @@ class MediaWikiClient(RequestsClient):
         :param titles: One or more page titles
         :return: Mapping of {page title: [image titles]}
         """
-        needed, img_titles = self._get_misc_cached('images', titles)
+        needed, img_titles = self._cache.get_misc('images', titles)
         if needed:
             resp = self.query(prop='images', titles=titles)
             results = {title: [image['title'] for image in data.get('images', [])] for title, data in resp.items()}
-            self._store_misc_cached('images', results)
+            self._cache.store_misc('images', results)
             img_titles.update(results)
         return img_titles
 
@@ -679,13 +693,13 @@ class MediaWikiClient(RequestsClient):
         :param titles: One or more image titles (NOT page titles)
         :return: Mapping of {image title: download URL}
         """
-        needed, urls = self._get_misc_cached('imageinfo', titles)
+        needed, urls = self._cache.get_misc('imageinfo', titles)
         if needed:
             resp = self.query(prop='imageinfo', iiprop='url', titles=needed)
             resp_urls = {  # Some entries may have missing: True and no imageinfo key
                 title: img_info[0]['url'] for title, data in resp.items() if (img_info := data.get('imageinfo'))
             }
-            self._store_misc_cached('imageinfo', resp_urls)
+            self._cache.store_misc('imageinfo', resp_urls)
             urls.update(resp_urls)
         return urls
 
@@ -708,7 +722,7 @@ class MediaWikiClient(RequestsClient):
             name = None
 
         try:
-            return self._get_cached_image(name)
+            return self._cache.get_image(name)
         except KeyError:
             pass
 
@@ -724,7 +738,7 @@ class MediaWikiClient(RequestsClient):
         data = bio.getvalue()
         log.debug(f'Downloaded {len(data):,d} B (expected {content_len:,d} B) from {url}')
         if content_len and len(data) == content_len:
-            self._store_cached_image(name, data)
+            self._cache.store_image(name, data)
         return data
 
     # endregion
@@ -773,6 +787,7 @@ class WikiQuery:
         self._gsrwhat = gsrwhat
         self._pages = {}  # type: dict[str, PageEntry]
         self._no_data = set()
+        self._cache: WikiCache = client._cache
 
     def get_pages(self) -> dict[str, PageEntry]:
         if self.needed:
@@ -785,13 +800,13 @@ class WikiQuery:
                 for title in missing:
                     kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': self._gsrwhat}
                     resp = self.client.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
-                    self.client._search_title_cache[title] = list(resp)
+                    self._cache.search_titles[title] = list(resp)
                     self._process_pages_resp(resp, self._gsrwhat == 'text')
 
             for title in sorted(self._no_data.union(self.missing)):
-                if title not in self.client._page_cache:
+                if title not in self._cache.pages:
                     qlog.debug(f'No page was found from {self.client.host} for {title=} - caching null page')
-                    self.client._page_cache[title] = None
+                    self._cache.pages[title] = None
 
         return self._pages
 
@@ -809,7 +824,7 @@ class WikiQuery:
         need = set()
         for title in self.titles:
             try:
-                norm_title = self.client._norm_title_cache[normalize(title)]
+                norm_title = self._cache.normalized_titles[normalize(title)]
             except KeyError:
                 norm_title = title
             else:
@@ -818,10 +833,10 @@ class WikiQuery:
             if self.no_cache:
                 need.add(title)
             else:
-                for _title in self.client._search_title_cache.get(norm_title, (norm_title,)):
+                for _title in self._cache.search_titles.get(norm_title, (norm_title,)):
                     key = title if _title == norm_title else _title
                     try:
-                        page = self.client._page_cache[_title]
+                        page = self._cache.pages[_title]
                     except KeyError:
                         need.add(key)
                         qlog.debug(f'No content was found in {self.client.host} page cache for title={norm_title!r}')
@@ -853,7 +868,7 @@ class WikiQuery:
                 continue
 
             rev = data.get('revisions')
-            self.client._page_cache[title] = entry = {
+            self._cache.pages[title] = entry = {
                 'title': title, 'categories': data.get('categories') or [], 'wikitext': rev[0] if rev else None
             }
             yield title, normalize(title), data, entry
@@ -916,7 +931,7 @@ class WikiQuery:
 
     def _store_normalized(self, orig: str, normalized: str, reason: str):
         qlog.debug(f'Storing title normalization for {orig!r} => {normalized!r} [{reason}]')
-        self.client._norm_title_cache[orig] = normalized
+        self._cache.normalized_titles[orig] = normalized
 
     def _store_page(self, title: str, entry: PageEntry):
         self._pages[title] = entry

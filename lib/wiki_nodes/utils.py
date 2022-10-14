@@ -2,8 +2,12 @@
 :author: Doug Skrypa
 """
 
+from __future__ import annotations
+
 import re
 from collections import UserDict
+from contextlib import contextmanager
+from threading import RLock
 from typing import TYPE_CHECKING, TypeVar, Sequence, Iterator, Mapping, Any
 
 if TYPE_CHECKING:
@@ -18,6 +22,8 @@ __all__ = [
     'wiki_attr_values',
 ]
 T = TypeVar('T')
+
+_NOT_FOUND = object()
 
 
 def strip_style(text: str, strip: bool = True) -> str:
@@ -66,13 +72,15 @@ def partitioned(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]:
 class ClearableCachedPropertyMixin:
     @classmethod
     def _cached_properties(cls):
-        from functools import cached_property
         cached_properties = {}
         for clz in cls.mro():
             if clz == cls:
-                for k, v in cls.__dict__.items():
-                    if isinstance(v, cached_property):
-                        cached_properties[k] = v
+                try:
+                    for k, v in cls.__dict__.items():
+                        if isinstance(v, cached_property):
+                            cached_properties[k] = v
+                except AttributeError:
+                    pass
             else:
                 try:
                     # noinspection PyUnresolvedReferences
@@ -85,8 +93,86 @@ class ClearableCachedPropertyMixin:
         for prop in self._cached_properties():
             try:
                 del self.__dict__[prop]
-            except KeyError:
+            except (KeyError, AttributeError):
                 pass
+
+
+class cached_property:  # noqa
+    """
+    A cached property implementation that does not block access to all instances' attribute while one instance's
+    func is being called.
+    """
+
+    def __init__(self, func):
+        self.func = func
+        self.name = None
+        self.__doc__ = func.__doc__
+        self.lock = RLock()
+        self.instance_locks = {}
+
+    def __set_name__(self, owner, name):
+        if self.name is None:
+            self.name = name
+        elif name != self.name:
+            raise TypeError(
+                f'Cannot assign the same cached_property to two different names ({self.name!r} and {name!r}).'
+            )
+
+    def _get_instance_lock(self, key) -> RLock:
+        with self.lock:
+            try:
+                return self.instance_locks[key]
+            except KeyError:
+                self.instance_locks[key] = lock = RLock()
+                return lock
+
+    @contextmanager
+    def instance_lock(self, instance, owner):
+        key = (owner, id(instance))
+        # Some object instances are not hashable, but its class + id should be unique long enough for this purpose
+        lock = self._get_instance_lock(key)
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+            # During the yield, a value will have been stored, or an error will have been raised.
+            # If another instance was waiting for the instance lock, it will find the cached value and the key will
+            # have already been deleted by the time it gets here.  If another thread attempts to access the property
+            # after this point, it will already be cached, so the lock for that instance is no longer necessary.
+            with self.lock:
+                try:
+                    del self.instance_locks[key]
+                except KeyError:
+                    pass
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+        elif self.name is None:
+            raise TypeError('Cannot use cached_property instance without calling __set_name__ on it.')
+
+        try:
+            cache = instance.__dict__
+        except AttributeError:  # not all objects have __dict__ (e.g. class defines slots)
+            msg = f"No '__dict__' attribute on {type(instance).__name__!r} instance to cache {self.name!r} property."
+            raise TypeError(msg) from None
+
+        if (val := cache.get(self.name, _NOT_FOUND)) is _NOT_FOUND:
+            with self.instance_lock(instance, owner):
+                # check if another thread filled cache while we awaited lock
+                if (val := cache.get(self.name, _NOT_FOUND)) is _NOT_FOUND:
+                    val = self.func(instance)
+                    try:
+                        cache[self.name] = val
+                    except TypeError:
+                        msg = (
+                            f"The '__dict__' attribute on {type(instance).__name__!r} instance "
+                            f'does not support item assignment for caching {self.name!r} property.'
+                        )
+                        raise TypeError(msg) from None
+
+        return val
 
 
 class IntervalCoverageMap(UserDict):
@@ -122,7 +208,7 @@ def short_repr(text) -> str:
         return repr(f'{text[:24]}...{text[-23:]}')
 
 
-def wiki_attr_values(wiki_text: 'WikiText', attr: str, known_values: Mapping[str, Any] = None):
+def wiki_attr_values(wiki_text: WikiText, attr: str, known_values: Mapping[str, Any] = None):
     if known_values:
         try:
             return known_values[attr]
