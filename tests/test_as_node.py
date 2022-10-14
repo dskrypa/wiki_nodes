@@ -1,12 +1,8 @@
 #!/usr/bin/env python
 
 import logging
-import sys
-from pathlib import Path
 from unittest import main, TestCase
-# from unittest.mock import MagicMock, patch
 
-sys.path.append(Path(__file__).parents[1].as_posix())
 from wiki_nodes import as_node, Link, List, String, CompoundNode
 
 log = logging.getLogger(__name__)

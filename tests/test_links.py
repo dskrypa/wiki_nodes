@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 
-import sys
-from pathlib import Path
 from unittest import main, TestCase
 from unittest.mock import MagicMock, patch
 
-sys.path.append(Path(__file__).parents[1].as_posix())
 from wiki_nodes import MediaWikiClient, Link, Template
 
 KPOP_FANDOM_IW_MAP = {'w': 'https://community.fandom.com/wiki/$1', 'wikipedia': 'http://en.wikipedia.org/wiki/$1'}

@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 
 import logging
-import sys
-from pathlib import Path
 from unittest import main, TestCase
 
-sys.path.append(Path(__file__).parents[1].as_posix())
 from wiki_nodes.utils import IntervalCoverageMap
 
 log = logging.getLogger(__name__)

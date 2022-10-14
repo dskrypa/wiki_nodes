@@ -1,17 +1,9 @@
 #!/usr/bin/env python
 
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, PROJECT_ROOT.joinpath('bin').as_posix())
-import _venv  # This will activate the venv, if it exists and is not already active
-
 import logging
 from argparse import ArgumentParser
 
-sys.path.insert(0, PROJECT_ROOT.as_posix())
-from wiki_nodes.__version__ import __author_email__, __version__
+from wiki_nodes.__version__ import __author_email__, __version__  # noqa
 from wiki_nodes.http import MediaWikiClient
 
 log = logging.getLogger(__name__)
