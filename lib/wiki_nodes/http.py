@@ -14,7 +14,6 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime
-from distutils.version import LooseVersion
 from io import BytesIO
 from json import JSONDecodeError, dumps
 from pathlib import Path
@@ -29,6 +28,7 @@ from db_cache.utils import get_user_cache_dir
 from requests_client import RequestsClient
 from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
 from .utils import partitioned, cached_property
+from .version import LooseVersion
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
