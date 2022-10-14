@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Union
 
 Ver = Union[str, 'Version']
-Bool = Union[bool, NotImplemented]
+Bool = Union[bool, type(NotImplemented)]
 
 
 class Version(ABC):
