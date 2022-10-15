@@ -8,7 +8,7 @@ import re
 from collections import UserDict
 from contextlib import contextmanager
 from threading import RLock
-from typing import TYPE_CHECKING, TypeVar, Sequence, Iterator, Mapping, Any
+from typing import TYPE_CHECKING, TypeVar, Sequence, Iterator, Mapping, Any, Callable, MutableMapping, Generic, overload
 
 if TYPE_CHECKING:
     from wikitextparser import WikiText
@@ -21,7 +21,11 @@ __all__ = [
     'short_repr',
     'wiki_attr_values',
 ]
+
 T = TypeVar('T')
+Obj = TypeVar('Obj')
+Method = Callable[[Obj], T]
+Cache = MutableMapping[str, T]
 
 _NOT_FOUND = object()
 
@@ -97,20 +101,20 @@ class ClearableCachedPropertyMixin:
                 pass
 
 
-class cached_property:  # noqa
+class cached_property(Generic[T]):  # noqa
     """
     A cached property implementation that does not block access to all instances' attribute while one instance's
     func is being called.
     """
 
-    def __init__(self, func):
+    def __init__(self, func: Method):
         self.func = func
         self.name = None
         self.__doc__ = func.__doc__
         self.lock = RLock()
         self.instance_locks = {}
 
-    def __set_name__(self, owner, name):
+    def __set_name__(self, owner, name: str):
         if self.name is None:
             self.name = name
         elif name != self.name:
@@ -127,7 +131,7 @@ class cached_property:  # noqa
                 return lock
 
     @contextmanager
-    def instance_lock(self, instance, owner):
+    def instance_lock(self, instance: Obj, owner):
         key = (owner, id(instance))
         # Some object instances are not hashable, but its class + id should be unique long enough for this purpose
         lock = self._get_instance_lock(key)
@@ -146,7 +150,15 @@ class cached_property:  # noqa
                 except KeyError:
                     pass
 
-    def __get__(self, instance, owner=None):
+    @overload
+    def __get__(self, instance: None, owner) -> cached_property:
+        ...
+
+    @overload
+    def __get__(self, instance: Obj, owner) -> T:
+        ...
+
+    def __get__(self, instance, owner):
         if instance is None:
             return self
         elif self.name is None:
@@ -155,8 +167,8 @@ class cached_property:  # noqa
         try:
             cache = instance.__dict__
         except AttributeError:  # not all objects have __dict__ (e.g. class defines slots)
-            msg = f"No '__dict__' attribute on {type(instance).__name__!r} instance to cache {self.name!r} property."
-            raise TypeError(msg) from None
+            cls = owner.__name__
+            raise TypeError(f"Unable to cache {cls}.{self.name} because {cls} has no '__dict__' attribute") from None
 
         if (val := cache.get(self.name, _NOT_FOUND)) is _NOT_FOUND:
             with self.instance_lock(instance, owner):
@@ -166,11 +178,10 @@ class cached_property:  # noqa
                     try:
                         cache[self.name] = val
                     except TypeError:
-                        msg = (
-                            f"The '__dict__' attribute on {type(instance).__name__!r} instance "
-                            f'does not support item assignment for caching {self.name!r} property.'
-                        )
-                        raise TypeError(msg) from None
+                        cls = owner.__name__
+                        raise TypeError(
+                            f'Unable to cache {cls}.{self.name} because {cls}.__dict__ does not support item assignment'
+                        ) from None
 
         return val
 

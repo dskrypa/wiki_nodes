@@ -18,6 +18,7 @@ class WikiResponseError(WikiError):
 
 class PageMissingError(WikiError):
     """Exception to be raised if the requested page does not exist"""
+
     def __init__(self, title, host, extra=None):
         self.title = title
         self.host = host
