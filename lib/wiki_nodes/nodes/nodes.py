@@ -39,7 +39,7 @@ _NotSet = object()
 
 
 class Node(ClearableCachedPropertyMixin):
-    __slots__ = ('raw', 'preserve_comments', 'root')
+    __slots__ = ('raw', 'preserve_comments', 'root', '__compressed')
 
     def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False):
         if isinstance(raw, str):
@@ -57,10 +57,20 @@ class Node(ClearableCachedPropertyMixin):
     def __bool__(self) -> bool:
         return bool(self.raw.string)
 
+    @property
+    def _compressed(self) -> str:
+        try:
+            return self.__compressed
+        except AttributeError:
+            pass
+        compressed = ''.join(part for line in self.raw.string.splitlines() for part in line.split() if part)
+        self.__compressed = compressed
+        return compressed
+
     def __eq__(self, other) -> bool:
         if other.__class__ != self.__class__:
             return False
-        return self.raw.string == other.raw.string
+        return self._compressed == other._compressed
 
     @property
     def is_basic(self) -> Optional[bool]:
@@ -127,7 +137,7 @@ class CompoundNode(Node, ContainerNode):
     def __eq__(self, other) -> bool:
         if other.__class__ != self.__class__:
             return False
-        return self.raw.string == other.raw.string and self.children == other.children
+        return self._compressed == other._compressed and self.children == other.children
 
     @property
     def is_basic(self) -> bool:
@@ -279,6 +289,14 @@ class String(BasicNode):
 
     def __str__(self) -> str:
         return self.value
+
+    def __eq__(self, other: Union[Node, str]) -> bool:
+        if isinstance(other, str):
+            return self.value == other
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        return hash(self.__class__) ^ hash(self.value)
 
     def __add__(self, other) -> String:
         return String(self.raw.string + other.raw.string, self.root)
@@ -692,6 +710,10 @@ class Template(BasicNode, ContainerNode):
     _basic_names = {'n/a', 'small'}
     _lang_names = {'ko-hhrm'}
 
+    raw: _Template
+    name: str
+    lc_name: str
+
     def __init__(self, raw: Union[str, WikiText, _Template], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
         if type(self.raw) is WikiText:
@@ -699,8 +721,8 @@ class Template(BasicNode, ContainerNode):
                 self.raw = self.raw.templates[0]
             except IndexError as e:
                 raise ValueError('Invalid wiki template value') from e
-        self.name = self.raw.name.strip()                                                                   # type: str
-        self.lc_name = self.name.lower()                                                                    # type: str
+        self.name = self.raw.name.strip()
+        self.lc_name = self.name.lower()
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.name!r}: {self.value!r})>'
@@ -721,67 +743,20 @@ class Template(BasicNode, ContainerNode):
         return f'{indent}<{self.__class__.__name__}[{self.name!r}][{self.value!r}]>'
 
     @cached_property
+    def handler(self) -> TemplateHandler:
+        return TemplateHandler.for_template(self)
+
+    @cached_property
     def is_basic(self) -> bool:
-        if self.lc_name in self._basic_names:
-            return True
-        return self.value is None or isinstance(self.value, (String, Link))
+        return self.handler.is_basic
 
     @cached_property
     def value(self):
-        args = self.raw.arguments
-        if not args:
-            return None
-
-        if self.lc_name == 'abbr':          # [short, long]
-            return [a.value for a in args]
-        elif self.lc_name == 'wp' and len(args) in (2, 3):  # {{WP|lang|title|text (optional)}}
-            vals = tuple(a.value for a in args)
-            lang, title = vals[:2]
-            return Link.from_title(f'wikipedia:{lang}:{title}', self.root, vals[2] if len(vals) == 3 else None)
-        elif all(arg.positional for arg in args):
-            if len(args) == 1:
-                raw_value = args[0].value or self._defaults.get(self.lc_name or '')
-                value = as_node(raw_value, self.root, self.preserve_comments)
-                if self.lc_name in ('main', 'see also') and isinstance(value, String):
-                    value = Link.from_title(value.value, self.root)
-                return value
-            return [as_node(a.value, self.root, self.preserve_comments) for a in args]
-        elif self.lc_name in self._lang_names or self.lc_name.startswith('lang-') and len(args) == 1:
-            return as_node(args[0].value.strip())
-
-        mapping = MappingNode(self.raw, self.root, self.preserve_comments)
-        for arg in args:
-            key = strip_style(arg.name)
-            mapping[key] = node = as_node(arg.value.strip(), self.root, self.preserve_comments, strict_tags=True)
-            # log.debug(f'[{self.lc_name}] Processing {key=} {node=}')
-            if key == 'image' and self.lc_name.startswith('infobox') and isinstance(node, String) and node:
-                mapping[key] = Link.from_title(
-                    node.value if node.value.lower().startswith('file:') else f'File:{node.value}', self.root
-                )
-
-        return mapping
+        return self.handler.get_value()
 
     @cached_property
-    def zipped(self):
-        if not isinstance(self.value, MappingNode):
-            return None
-        mapping = MappingNode(self.raw, self.root, self.preserve_comments)
-        keys, values = [], []
-        num_search = re.compile(r'[a-z](\d+)$', re.IGNORECASE).search
-        for key, value in self.value.items():
-            if num_search(key):
-                if len(keys) == len(values):
-                    if isinstance(value, String):
-                        keys.append(value.value)
-                    else:
-                        log.debug(f'Unexpected zip key={value!r}')
-                else:
-                    values.append(value)
-            else:
-                keys.append(key)
-                values.append(value)
-        mapping.update(zip(keys, values))
-        return mapping
+    def zipped(self) -> Optional[MappingNode]:
+        return self.handler.zip_value(self.value)
 
     def __getitem__(self, item):
         if self.value is None:
@@ -1196,3 +1171,4 @@ def iw_community_link_match(title: str) -> Optional[Match]:
 # Down here due to circular dependency
 from ..http import MediaWikiClient  # noqa
 from .parsing import as_node  # noqa
+from .templates import TemplateHandler

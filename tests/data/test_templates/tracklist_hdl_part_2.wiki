@@ -1,0 +1,57 @@
+{{tracklist
+    | headline     = Released on {{start date
+        | 1 = 2019
+        | 2 = 7
+        | 3 = 20
+    }}<ref>{{cite web
+        | first1       = Min-ji
+        | last1        = Lee
+        | url          = http://newsen.com/news_view.php?uid=201907200903122410
+        | title        = 십센치, 오늘(20일) '호텔 델루나' OST 공개…아련 감성 발라드 예고
+        | date         = July 20, 2019
+        | website      = Newsen
+        | access-date  = July 21, 2019
+        | language     = ko
+        | archive-date = September 28, 2020
+        | archive-url  = https://web.archive.org/web/20200928115121/https://www.newsen.com/news_view.php?uid=201907200903122410
+        | url-status   = live
+    }}</ref>
+    | extra_column = Artist
+    | title1       = Lean On My Shoulders
+    | note1        = 나의 어깨에 기대어요
+    | lyrics1      = {{hlist
+        | 1 = Ji Hoon
+        | 2 = Park Se-jun
+    }}
+    | music1       = {{hlist
+        | 1 = Lee Seung-joo
+        | 2 = Choi In-hwan
+    }}
+    | extra1       = [[10cm (singer)|10cm]]
+    | length1      = 3:31
+    | title2       = Lean On My Shoulders
+    | note2        = Inst.
+    | music2       = {{hlist
+        | 1 = Lee Seung-joo
+        | 2 = Choi In-hwan
+    }}
+    | length2      = 3:31
+    | total_length = 7:02
+    | title10      =
+    | length9      =
+    | title7       =
+    | title9       =
+    | length8      =
+    | title8       =
+    | length7      =
+    | length3      =
+    | length6      =
+    | title6       =
+    | length5      =
+    | title5       =
+    | length4      =
+    | title4       =
+    | title3       =
+    | all_writing  =
+    | length10     =
+}}
