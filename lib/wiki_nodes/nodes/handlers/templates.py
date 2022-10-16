@@ -232,7 +232,13 @@ class WikipediaTrackListHandler(WikipediaHandler, for_name='tracklist', basic=Fa
             return value
 
         meta, rows = parse_rows_with_meta(value)
+        # node = self.node
+        # return MappingNode(node.raw, node.root, node.preserve_comments, content={'meta': meta, 'tracks': rows})
         return {'meta': meta, 'tracks': rows}
+
+
+class WikipediaTrackListingHandler(WikipediaTrackListHandler, for_name='track listing', basic=False):
+    __slots__ = ()
 
 
 # endregion

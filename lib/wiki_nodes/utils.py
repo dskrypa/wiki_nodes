@@ -7,17 +7,39 @@ from __future__ import annotations
 import re
 from collections import UserDict
 from contextlib import contextmanager
+from shutil import get_terminal_size
 from threading import RLock
 from typing import TypeVar, Sequence, Iterator, Callable, MutableMapping, Generic, overload
 
-__all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap', 'short_repr']
+from rich.highlighter import NullHighlighter
+from rich.pretty import pretty_repr
+from rich.text import Text
+
+__all__ = [
+    'strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap', 'short_repr', 'rich_repr'
+]
 
 T = TypeVar('T')
 Obj = TypeVar('Obj')
 Method = Callable[[Obj], T]
 Cache = MutableMapping[str, T]
 
+NULL_HIGHLIGHTER = NullHighlighter()
 _NOT_FOUND = object()
+_MAX_WIDTH = None
+
+
+def rich_repr(obj, max_width: int = None) -> str:
+    """Render a non-highlighted (symmetrical) pretty repr of the given object using rich."""
+    if max_width is None:
+        global _MAX_WIDTH
+        if _MAX_WIDTH is None:
+            max_width = _MAX_WIDTH = get_terminal_size()[0]
+        else:
+            max_width = _MAX_WIDTH
+
+    text = pretty_repr(obj, max_width=max_width)
+    return str(Text(text, style='pretty'))
 
 
 def strip_style(text: str, strip: bool = True) -> str:

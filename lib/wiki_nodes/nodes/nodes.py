@@ -22,7 +22,7 @@ from wikitextparser import (
 )
 
 from ..exceptions import NoLinkSite, NoLinkTarget
-from ..utils import strip_style, ClearableCachedPropertyMixin, cached_property
+from ..utils import strip_style, ClearableCachedPropertyMixin, cached_property, rich_repr
 
 if TYPE_CHECKING:
     from ..http import MediaWikiClient
@@ -744,6 +744,7 @@ class Table(CompoundNode, attr='tables'):
         headers = self.headers
         processed = []
         for row in self.raw.cells()[self._header_rows:]:
+            # TODO: AttributeError on row[0].attrs on No_Gods_No_Masters_(Garbage_album)
             if int(row[0].attrs.get('colspan', 1)) >= len(headers):  # Some tables have an incorrect value...
                 processed.append(TableSeparator(node_fn(row[0])))
             else:
@@ -784,15 +785,25 @@ class Template(BasicNode, ContainerNode, attr='templates'):
         if value := self.value:
             if isinstance(value, Node):
                 value = value.pformat(indentation + 4)
+                if '\n' in value:
+                    value = f'\n{value}\n{indent}'
             elif isinstance(value, list):
                 inside = ' ' * (indentation + 4)
                 inner = indentation + 8
                 value = ',\n'.join(f'{inside}{v.pformat(inner)}' for v in value)
+                if '\n' in value:
+                    value = f'\n{value}\n{indent}'
             else:
-                value = repr(value)
+                value = rich_repr(value)
+                if '\n' in value:
+                    lines = value.splitlines()
+                    lines[-1] = indent + lines[-1]
+                    value = '\n'.join(lines)
+
             if '\n' in value:
-                return f'{indent}<{self.__class__.__name__}[{self.name!r}][\n{value}\n{indent}]>'
-        return f'{indent}<{self.__class__.__name__}[{self.name!r}][{self.value!r}]>'
+                return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value}]>'
+
+        return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value!r}]>'
 
     @cached_property
     def handler(self) -> TemplateHandler:

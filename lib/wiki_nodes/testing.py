@@ -14,21 +14,10 @@ from typing import Any
 from unittest import TestCase
 from unittest.mock import Mock, seal, patch
 
-from rich.highlighter import NullHighlighter
-from rich.pretty import pretty_repr
-from rich.text import Text
-
 from .http import MediaWikiClient, WikiCache
+from .utils import rich_repr
 
 __all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock', 'RedirectStreams']
-
-NULL_HIGHLIGHTER = NullHighlighter()
-
-
-def rich_repr(obj, max_width: int = 80) -> str:
-    """Render a non-highlighted (symmetrical) pretty repr of the given object using rich."""
-    text = pretty_repr(obj, max_width=max_width)
-    return str(Text(text, style='pretty'))
 
 
 class WikiNodesTest(TestCase):
