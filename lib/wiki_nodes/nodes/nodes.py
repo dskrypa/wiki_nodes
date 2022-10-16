@@ -827,6 +827,8 @@ class Template(BasicNode, ContainerNode, attr='templates'):
 
 
 class Root(Node):
+    site: OptStr
+
     # Children = sections
     def __init__(
         self,
@@ -838,7 +840,7 @@ class Root(Node):
         if isinstance(page_text, str):
             page_text = WikiText(page_text.replace('\xa0', ' ').replace('\u200b', ''))
         super().__init__(page_text, None, preserve_comments)
-        self.site = site                                        # type: Optional[str]
+        self.site = site
         self._interwiki_map = interwiki_map                     # type: Optional[Mapping[str, str]]
 
     def __getitem__(self, item: str) -> Section:

@@ -7,7 +7,7 @@ from unittest.mock import patch, Mock
 
 from wiki_nodes import as_node, Root, Link, List, String, Template, CompoundNode, Tag, Node, BasicNode, MappingNode
 from wiki_nodes.exceptions import NoLinkTarget
-from wiki_nodes.nodes import ListEntry
+from wiki_nodes.nodes import ListEntry, TableSeparator, Table
 from wiki_nodes.testing import WikiNodesTest, RedirectStreams
 
 log = logging.getLogger(__name__)
@@ -352,6 +352,21 @@ class NodeParsingTest(WikiNodesTest):
         # expected = [ListEntry('* foo'), ListEntry('** a'), ListEntry('** b')]
         expected = ['foo', 'a', 'b', 'c']
         self.assert_equal(expected, list(List('* foo\n** a\n** b\n*\n** c\n').iter_flat()))
+
+    # endregion
+
+    # region Table
+
+    def test_table_sep(self):
+        ts = TableSeparator('foo')
+        self.assert_equal("<TableSeparator('foo')>", repr(ts))
+        self.assert_equal("<TableSeparator['foo']>", ts.pformat())
+
+    def test_table_basics(self):
+        table = Table('{|\n! a !! b !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
+        self.assert_equal(['a', 'b', 'c'], table.headers)
+        expected = [{'a': '1', 'b': '2', 'c': '3'}, {'a': '4', 'b': '5', 'c': '6'}]
+        self.assert_equal(expected, [row.children for row in table.children])
 
     # endregion
 
