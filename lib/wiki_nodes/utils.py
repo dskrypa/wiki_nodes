@@ -74,6 +74,8 @@ def partitioned(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]:
 
 
 class ClearableCachedPropertyMixin:
+    __slots__ = ()
+
     @classmethod
     def _cached_properties(cls):
         cached_properties = {}
@@ -217,13 +219,3 @@ def short_repr(text) -> str:
         return repr(text)
     else:
         return repr(f'{text[:24]}...{text[-23:]}')
-
-
-def wiki_attr_values(wiki_text: WikiText, attr: str, known_values: Mapping[str, Any] = None):
-    if known_values:
-        try:
-            return known_values[attr]
-        except KeyError:
-            pass
-    value = getattr(wiki_text, attr)
-    return value() if hasattr(value, '__call__') else value
