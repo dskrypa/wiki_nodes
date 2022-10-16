@@ -14,7 +14,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from copy import copy
-from typing import Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match
+from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match
 
 from wikitextparser import (
     WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
@@ -24,6 +24,10 @@ from wikitextparser import (
 from ..exceptions import NoLinkSite, NoLinkTarget
 from ..utils import strip_style, ClearableCachedPropertyMixin, cached_property
 
+if TYPE_CHECKING:
+    from ..http import MediaWikiClient
+    from .handlers import TagHandler, TemplateHandler
+
 __all__ = [
     'Node', 'BasicNode', 'CompoundNode', 'ContainerNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List',
     'Table', 'Template', 'Root', 'Section', 'TableSeparator', 'N', 'AnyNode'
@@ -31,22 +35,48 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 N = TypeVar('N', bound='Node')
+OptStr = Optional[str]
+Raw = Union[str, WikiText]
 AnyNode = Union[
     'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List', 'Table',
     'Template', 'Root', 'Section'
 ]
+
 _NotSet = object()
 
 
 class Node(ClearableCachedPropertyMixin):
     __slots__ = ('raw', 'preserve_comments', 'root', '__compressed')
 
-    def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False):
-        if isinstance(raw, str):
-            raw = WikiText(raw)
-        self.raw = raw
+    _raw_attr: OptStr = None
+    _raw_meth: OptStr = None
+
+    def __init_subclass__(cls, attr: OptStr = None, method: OptStr = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if attr:
+            cls._raw_attr = attr
+        if method:
+            cls._raw_meth = method
+
+    def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, _index: int = 0):
+        self.raw = self.normalize_raw(raw, _index)
         self.preserve_comments = preserve_comments
         self.root = root
+
+    @classmethod
+    def normalize_raw(cls, raw: Raw, index: int = 0) -> WikiText:
+        if isinstance(raw, str):
+            raw = WikiText(raw)
+        if (attr := cls._raw_attr) and type(raw) is WikiText:
+            raw_seq = getattr(raw, attr)
+        elif (method := cls._raw_meth) and type(raw) is WikiText:
+            raw_seq = getattr(raw, method)()
+        else:
+            return raw
+        try:
+            return raw_seq[index]
+        except IndexError as e:
+            raise ValueError(f'Invalid wiki {cls.__name__} value') from e
 
     def stripped(self, *args, **kwargs) -> str:
         return strip_style(self.raw.string, *args, **kwargs)
@@ -113,6 +143,8 @@ class CompoundNode(Node, ContainerNode):
     def children(self) -> list[N]:
         return []
 
+    # region Dunder Methods
+
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}{self.children!r}>'
 
@@ -138,6 +170,8 @@ class CompoundNode(Node, ContainerNode):
         if other.__class__ != self.__class__:
             return False
         return self._compressed == other._compressed and self.children == other.children
+
+    # endregion
 
     @property
     def is_basic(self) -> bool:
@@ -188,7 +222,7 @@ class CompoundNode(Node, ContainerNode):
 
 
 class MappingNode(CompoundNode, MutableMapping):
-    def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False, content=None):
+    def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, content=None):
         super().__init__(raw, root, preserve_comments)
         if content:
             self.children.update(content)
@@ -225,14 +259,13 @@ class MappingNode(CompoundNode, MutableMapping):
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
 
-class Tag(BasicNode, ContainerNode):
-    def __init__(self, raw: Union[str, WikiText, _Tag], root: Root = None, preserve_comments: bool = False):
+class Tag(BasicNode, ContainerNode, method='get_tags'):
+    raw: _Tag
+    name: str
+    attrs: dict[str, str]
+
+    def __init__(self, raw: Union[Raw, _Tag], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
-        if type(self.raw) is WikiText:
-            try:
-                self.raw = self.raw.get_tags()[0]
-            except IndexError as e:
-                raise ValueError('Invalid wiki tag value') from e
         self.name = self.raw.name
         self.attrs = self.raw.attrs
 
@@ -241,22 +274,14 @@ class Tag(BasicNode, ContainerNode):
         return f'<{self.__class__.__name__}[{self.name}{attrs}][{self.value}]>'
 
     @cached_property
+    def handler(self) -> TagHandler:
+        from .handlers import TagHandler
+
+        return TagHandler.for_node(self)
+
+    @cached_property
     def value(self):
-        if self.name == 'nowiki':
-            return String(self.raw.contents.strip(), self.root)
-        elif self.name == 'gallery':
-            links = []
-            for line in self.raw.contents.strip().splitlines():
-                try:
-                    title, text = line.rsplit('|', 1)
-                except (TypeError, ValueError):
-                    title, text = line, None
-                links.append(
-                    Link.from_title(title if title.lower().startswith('file:') else f'File:{title}', self.root, text)
-                )
-            return links
-        else:
-            return as_node(self.raw.contents.strip(), self.root, self.preserve_comments)
+        return self.handler.get_value()
 
     @property
     def is_basic(self) -> Optional[bool]:
@@ -276,13 +301,19 @@ class Tag(BasicNode, ContainerNode):
 
 
 class String(BasicNode):
-    def __init__(self, raw: Union[str, WikiText], root: Root = None):
+    __slots__ = ('value',)
+    raw: WikiText
+    value: str
+
+    def __init__(self, raw: Raw, root: Root = None):
         super().__init__(raw, root)
         self.value = strip_style(self.raw.string)
 
-    @cached_property
+    @property
     def lower(self) -> str:
         return self.value.lower()
+
+    # region Dunder Methods
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.raw.string.strip()!r})>'
@@ -304,19 +335,31 @@ class String(BasicNode):
     def __bool__(self) -> bool:
         return bool(self.value)
 
+    # endregion
+
 
 class Link(BasicNode):
-    def __init__(self, raw: Union[str, WikiText, _Link], root: Root = None):
-        super().__init__(raw, root)         # note: target = title + fragment; fragment not desired right now
+    raw: _Link
+    title: str
+    text: str
+
+    def __init__(self, raw: Union[Raw, _Link], root: Root = None):
+        super().__init__(raw, root)                    # note: target = title + fragment; fragment not desired right now
+        self.title = ' '.join(self.raw.title.split())  # collapse extra spaces
+        self.text = self.raw.text
+
+    @classmethod
+    def normalize_raw(cls, raw: Union[Raw, _Link], index: int = 0) -> _Link:
+        raw = super().normalize_raw(raw, index)
+        if isinstance(raw, _Link):
+            return raw  # noqa
         try:
-            self._orig: _Link = self.raw if isinstance(self.raw, _Link) else self.raw.wikilinks[0]
-        except IndexError:
-            raw_str = str(self.raw).strip()
+            return raw.wikilinks[0]
+        except IndexError as e:
+            raw_str = str(raw).strip()
             raw_str = f'"""\n{raw_str}\n"""' if '\n' in raw_str else repr(raw_str)
-            log.error(f'Link init attempted with non-link content - raw content={self.raw!r} - raw text={raw_str}')
-            raise
-        self.title = ' '.join(self._orig.title.split())     # type: str     # collapse extra spaces
-        self.text = self._orig.text                         # type: str
+            message = f'Link init attempted with non-link content - raw content={raw!r} - raw text={raw_str}'
+            raise ValueError(message) from e
 
     # region Link low level methods
 
@@ -416,6 +459,8 @@ class Link(BasicNode):
     @cached_property
     def client_and_title(self) -> tuple[MediaWikiClient, str]:
         """The :class:`MediaWikiClient<.http.MediaWikiClient>` and title to request from that client for this link"""
+        from ..http import MediaWikiClient
+
         if not (site := self.source_site):
             raise NoLinkSite(self)
 
@@ -436,7 +481,7 @@ class Link(BasicNode):
 
 
 class ListEntry(CompoundNode):
-    def __init__(self, raw: Union[str, WikiText], root: Root = None, preserve_comments: bool = False, _value=None):
+    def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, _value=None):
         super().__init__(raw, root, preserve_comments)
         if _value:
             self.value = _value
@@ -525,14 +570,11 @@ class ListEntry(CompoundNode):
             return f'{indent}<{self.__class__.__name__}(\n{content}\n{indent})>'
 
 
-class List(CompoundNode):
-    def __init__(self, raw: Union[str, WikiText, _List], root: Root = None, preserve_comments: bool = False):
+class List(CompoundNode, method='get_lists'):
+    raw: _List
+
+    def __init__(self, raw: Union[Raw, _List], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
-        if type(self.raw) is WikiText:
-            try:
-                self.raw = self.raw.get_lists()[0]
-            except IndexError as e:
-                raise ValueError('Invalid wiki list value') from e
         self._as_mapping = None
         self.start_char = self.raw.string[0]
 
@@ -627,20 +669,21 @@ class List(CompoundNode):
             _add_kv(key, val)
 
 
-class Table(CompoundNode):
+class Table(CompoundNode, attr='tables'):
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
+    raw: _Table
+    caption: Optional[str]
 
-    def __init__(self, raw: Union[str, WikiText, _Table], root: Root = None, preserve_comments: bool = False):
-        raw = self._rowspan_with_template.sub(r'\1 | {', raw.string if isinstance(raw, WikiText) else raw)
+    def __init__(self, raw: Union[Raw, _Table], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
-        if type(self.raw) is WikiText:
-            try:
-                self.raw = self.raw.tables[0]
-            except IndexError as e:
-                raise ValueError('Invalid wiki table value') from e
         self.caption = self.raw.caption.strip() if self.raw.caption else None
         self._header_rows = None
         self._raw_headers = None
+
+    @classmethod
+    def normalize_raw(cls, raw: Union[Raw, _Table], index: int = 0) -> _Table:
+        raw = cls._rowspan_with_template.sub(r'\1 | {', raw.string if isinstance(raw, WikiText) else raw)
+        return super().normalize_raw(raw, index)  # noqa
 
     @cached_property
     def headers(self) -> list[str]:
@@ -679,8 +722,12 @@ class Table(CompoundNode):
 
     @cached_property
     def children(self) -> list[Union[TableSeparator, MappingNode]]:
+        def node_fn(cell):
+            if not cell:
+                return cell
+            return as_node(cell.value.strip(), self.root, self.preserve_comments)
+
         headers = self.headers
-        node_fn = lambda cell: as_node(cell.value.strip(), self.root, self.preserve_comments) if cell else cell
         processed = []
         for row in self.raw.cells()[self._header_rows:]:
             if int(row[0].attrs.get('colspan', 1)) >= len(headers):  # Some tables have an incorrect value...
@@ -705,22 +752,13 @@ class TableSeparator:
         return f'{indent}<{self.__class__.__name__}[{self.value!r}]>'
 
 
-class Template(BasicNode, ContainerNode):
-    _defaults = {'n/a': 'N/A'}
-    _basic_names = {'n/a', 'small'}
-    _lang_names = {'ko-hhrm'}
-
+class Template(BasicNode, ContainerNode, attr='templates'):
     raw: _Template
     name: str
     lc_name: str
 
-    def __init__(self, raw: Union[str, WikiText, _Template], root: Root = None, preserve_comments: bool = False):
+    def __init__(self, raw: Union[Raw, _Template], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
-        if type(self.raw) is WikiText:
-            try:
-                self.raw = self.raw.templates[0]
-            except IndexError as e:
-                raise ValueError('Invalid wiki template value') from e
         self.name = self.raw.name.strip()
         self.lc_name = self.name.lower()
 
@@ -744,7 +782,9 @@ class Template(BasicNode, ContainerNode):
 
     @cached_property
     def handler(self) -> TemplateHandler:
-        return TemplateHandler.for_template(self)
+        from .handlers import TemplateHandler
+
+        return TemplateHandler.for_node(self)
 
     @cached_property
     def is_basic(self) -> bool:
@@ -776,7 +816,7 @@ class Root(Node):
     # Children = sections
     def __init__(
         self,
-        page_text: Union[str, WikiText],
+        page_text: Raw,
         site: str = None,
         preserve_comments: bool = False,
         interwiki_map: Mapping[str, str] = None,
@@ -824,22 +864,17 @@ class Root(Node):
         return root
 
 
-class Section(Node, ContainerNode):
+class Section(Node, ContainerNode, method='get_sections'):
+    raw: _Section
+    title: str
+    level: int
+
     def __init__(
-        self,
-        raw: Union[str, WikiText, _Section],
-        root: Optional[Root],
-        preserve_comments: bool = False,
-        _index: int = 0,
+        self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = 0
     ):
-        super().__init__(raw, root, preserve_comments)
-        if type(self.raw) is WikiText:
-            try:                                                    # _index is needed for re-constructed subsections
-                self.raw = self.raw.get_sections()[_index]          # type: _Section
-            except IndexError as e:
-                raise ValueError('Invalid wiki section value') from e
-        self.title = strip_style(self.raw.title) if self.raw.title else ''                      # type: str
-        self.level = self.raw.level                                                             # type: int
+        super().__init__(raw, root, preserve_comments, _index)
+        self.title = strip_style(self.raw.title) if self.raw.title else ''
+        self.level = self.raw.level
         self.children = {}  # populated by Root.sections
 
     def __repr__(self) -> str:
@@ -1169,6 +1204,4 @@ def iw_community_link_match(title: str) -> Optional[Match]:
 
 
 # Down here due to circular dependency
-from ..http import MediaWikiClient  # noqa
 from .parsing import as_node  # noqa
-from .templates import TemplateHandler

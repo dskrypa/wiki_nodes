@@ -6,6 +6,8 @@ Helpers for unit tests
 
 from __future__ import annotations
 
+import sys
+from contextlib import AbstractContextManager
 from difflib import unified_diff
 from io import StringIO
 from typing import Any
@@ -18,19 +20,15 @@ from rich.text import Text
 
 from .http import MediaWikiClient, WikiCache
 
-__all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock']
+__all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock', 'RedirectStreams']
 
 NULL_HIGHLIGHTER = NullHighlighter()
 
 
-def rich_repr(obj, max_width: int = 80, soft_wrap: bool = False) -> str:
+def rich_repr(obj, max_width: int = 80) -> str:
     """Render a non-highlighted (symmetrical) pretty repr of the given object using rich."""
     text = pretty_repr(obj, max_width=max_width)
-    if soft_wrap:
-        pretty_text = Text(text, style='pretty', no_wrap=True, overflow='ignore')
-    else:
-        pretty_text = Text(text, style='pretty')
-    return str(pretty_text)
+    return str(Text(text, style='pretty'))
 
 
 class WikiNodesTest(TestCase):
@@ -77,14 +75,10 @@ class WikiNodesTest(TestCase):
             self.assertEqual(expected, actual, message)
         elif expected != actual:
             diff = format_diff(expected, actual, n=diff_lines)
-            # if not diff.strip():
-            #     self.assertEqual(expected, actual)
-            # else:
-            self.fail('Strings did not match:\n' + diff)
-
-    def assert_str_starts_with_line(self, prefix: str, text: str):
-        new_line = text.index('\n')
-        self.assertEqual(prefix, text[:new_line])
+            if not diff.strip():
+                self.assertEqual(expected, actual)
+            else:
+                self.fail('Strings did not match:\n' + diff)
 
     def assert_str_contains(self, sub_text: str, text: str, diff_lines: int = 3):
         if sub_text not in text:
@@ -150,3 +144,30 @@ def sealed_mock(*args, **kwargs):
     mock = Mock(*args, **kwargs)
     seal(mock)
     return mock
+
+
+class RedirectStreams(AbstractContextManager):
+    def __init__(self):
+        self._old = {}
+        self._stdout = StringIO()
+        self._stderr = StringIO()
+
+    @property
+    def stdout(self) -> str:
+        return self._stdout.getvalue()
+
+    @property
+    def stderr(self) -> str:
+        return self._stderr.getvalue()
+
+    def __enter__(self) -> RedirectStreams:
+        streams = {'stdout': self._stdout, 'stderr': self._stderr}
+        for name, io in streams.items():
+            self._old[name] = getattr(sys, name)
+            setattr(sys, name, io)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        while self._old:
+            name, orig = self._old.popitem()
+            setattr(sys, name, orig)

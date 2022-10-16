@@ -1,105 +1,50 @@
 """
-
+Template processing handlers.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Type, Union, Optional
+from abc import ABC
+from typing import TYPE_CHECKING, Optional
 
-from ..utils import strip_style
-from .nodes import Template, String, Link, MappingNode
-from .parsing import as_node
+from ...utils import strip_style
+from ..nodes import Template, String, Link, MappingNode
+from ..parsing import as_node
+from .base import NodeHandler
 
 if TYPE_CHECKING:
-    from .nodes import Template
+    from wikitextparser import Argument
 
-__all__ = []
+__all__ = ['TemplateHandler']
 log = logging.getLogger(__name__)
 
 
-class TemplateHandler:
-    __slots__ = ('template',)
-    _site_name_handler_map = {}
-    _site_prefix_handler_map = {}
-    site: Optional[str] = None
-    name: Optional[str] = None
-    prefix: Optional[str] = None
+class TemplateHandler(NodeHandler[Template], root=True):
+    __slots__ = ()
     basic: bool = None
 
-    def __init_subclass__(
-        cls, tmpl_name: str = None, prefix: str = None, site: str = None, basic: bool = None, **kwargs
-    ):  # noqa
+    def __init_subclass__(cls, basic: bool = None, **kwargs):
         super().__init_subclass__(**kwargs)
-        if site is not None:
-            cls.site = site
         if basic is not None:
             cls.basic = basic
-        if tmpl_name:
-            cls.name = tmpl_name
-            cls.prefix = None
-            try:
-                cls._site_name_handler_map[site][tmpl_name] = cls
-            except KeyError:
-                cls._site_name_handler_map[site] = {tmpl_name: cls}
-        elif prefix:
-            cls.prefix = prefix
-            cls.name = None
-            try:
-                cls._site_prefix_handler_map[site][prefix] = cls
-            except KeyError:
-                cls._site_prefix_handler_map[site] = {prefix: cls}
-        elif ABC not in cls.__bases__:
-            raise TypeError(f'Missing required keyword argument for class={cls.__name__} init: tmpl_name or prefix')
-
-    def __init__(self, template: Template):
-        self.template = template
 
     @classmethod
-    def for_template(cls, template: Template) -> TemplateHandler:
-        try:
-            site = template.root.site
-        except AttributeError:
-            site = None
-        sites = (site, None) if site else (None,)
-        for site in sites:
-            if handler := cls._for_template(site, template):
-                # log.warning(f'Found handler={handler.__name__} for {site=} name={template.lc_name!r}')
-                return handler(template)
-
-        # log.warning(f'Could not find a handler for {sites=} name={template.lc_name!r}')
-        return cls(template)
-
-    @classmethod
-    def _for_template(cls, site: Optional[str], template: Template) -> Optional[Type[TemplateHandler]]:
-        name = template.lc_name
-        try:
-            return cls._site_name_handler_map[site][name]
-        except KeyError:
-            pass
-        try:
-            prefix_handler_map = cls._site_prefix_handler_map[site]
-        except KeyError:
-            pass
-        else:
-            for prefix, handler in prefix_handler_map.items():
-                if name.startswith(prefix):
-                    return handler
-        return None
+    def get_name(cls, node: Template) -> str:
+        return node.lc_name
 
     @property
     def is_basic(self) -> bool:
         if self.basic is not None:
             return self.basic
-        tmpl = self.template
+        tmpl = self.node
         return tmpl.value is None or isinstance(tmpl.value, (String, Link))
 
     # region Get Value Methods
 
     def get_value(self):
-        tmpl = self.template
+        tmpl = self.node
         if not (args := tmpl.raw.arguments):
             return None
         elif all(arg.positional for arg in args):
@@ -110,15 +55,15 @@ class TemplateHandler:
     def get_default_value(self):
         return None
 
-    def get_all_pos_value(self, args):
-        tmpl = self.template
+    def get_all_pos_value(self, args: list[Argument]):
+        tmpl = self.node
         if len(args) == 1:
             raw_value = args[0].value or self.get_default_value()
             return as_node(raw_value, tmpl.root, tmpl.preserve_comments)
         return [as_node(a.value, tmpl.root, tmpl.preserve_comments) for a in args]
 
-    def get_mapping_value(self, args) -> MappingNode:
-        tmpl = self.template
+    def get_mapping_value(self, args: list[Argument]) -> MappingNode:
+        tmpl = self.node
         mapping = MappingNode(tmpl.raw, tmpl.root, tmpl.preserve_comments)
         for arg in args:
             key = strip_style(arg.name)
@@ -132,7 +77,7 @@ class TemplateHandler:
         if not isinstance(value, MappingNode):
             return None
 
-        tmpl = self.template
+        tmpl = self.node
         mapping = MappingNode(tmpl.raw, tmpl.root, tmpl.preserve_comments)
         keys, values = [], []
         num_search = re.compile(r'[a-z](\d+)$', re.IGNORECASE).search
@@ -154,38 +99,43 @@ class TemplateHandler:
         return mapping
 
 
-class NullHandler(TemplateHandler, tmpl_name='n/a', basic=True):
+# region Common Handlers
+
+
+class NullHandler(TemplateHandler, for_name='n/a', basic=True):
     __slots__ = ()
 
     def get_default_value(self):
         return 'N/A'
 
 
-class AbbrHandler(TemplateHandler, tmpl_name='abbr'):
+class NoWikiHandler(TemplateHandler, for_name='nowiki'):
+    __slots__ = ()
+
     def get_value(self):
-        tmpl = self.template
-        if not (args := tmpl.raw.arguments):
+        if not (args := self.node.raw.arguments):
+            return None
+
+        values = [String(a.value) for a in args]
+        if len(values) == 1:
+            return values[0]
+        return values
+
+
+class AbbrHandler(TemplateHandler, for_name='abbr'):
+    __slots__ = ()
+
+    def get_value(self):
+        if not (args := self.node.raw.arguments):
             return None
         return [a.value for a in args]  # [short, long]
 
 
-class WpHandler(TemplateHandler, tmpl_name='wp'):
-    def get_value(self):
-        tmpl = self.template
-        if not (args := tmpl.raw.arguments):
-            return None
-        elif len(args) in (2, 3):  # {{WP|lang|title|text (optional)}}
-            vals = tuple(a.value for a in args)
-            lang, title = vals[:2]
-            return Link.from_title(f'wikipedia:{lang}:{title}', tmpl.root, vals[2] if len(vals) == 3 else None)
-        return super().get_value()
-
-
-class MainHandler(TemplateHandler, tmpl_name='main'):
+class MainHandler(TemplateHandler, for_name='main'):
     __slots__ = ()
 
-    def get_all_pos_value(self, args):
-        tmpl = self.template
+    def get_all_pos_value(self, args: list[Argument]):
+        tmpl = self.node
         if len(args) == 1:
             raw_value = args[0].value or self.get_default_value()
             value = as_node(raw_value, tmpl.root, tmpl.preserve_comments)
@@ -195,15 +145,15 @@ class MainHandler(TemplateHandler, tmpl_name='main'):
         return [as_node(a.value, tmpl.root, tmpl.preserve_comments) for a in args]
 
 
-class SeeAlsoHandler(MainHandler, tmpl_name='see also'):
+class SeeAlsoHandler(MainHandler, for_name='see also'):
     __slots__ = ()
 
 
 class InfoboxHandler(TemplateHandler, prefix='infobox', basic=False):
     __slots__ = ()
 
-    def get_mapping_value(self, args) -> MappingNode:
-        tmpl = self.template
+    def get_mapping_value(self, args: list[Argument]) -> MappingNode:
+        tmpl = self.node
         mapping = MappingNode(tmpl.raw, tmpl.root, tmpl.preserve_comments)
         for arg in args:
             key = strip_style(arg.name)
@@ -221,7 +171,7 @@ class LangPrefixHandler(TemplateHandler, prefix='lang-'):
     __slots__ = ()
 
     def get_value(self):
-        tmpl = self.template
+        tmpl = self.node
         if not (args := tmpl.raw.arguments):
             return None
         elif all(arg.positional for arg in args):
@@ -232,26 +182,49 @@ class LangPrefixHandler(TemplateHandler, prefix='lang-'):
         return self.get_mapping_value(args)
 
 
-class KoHhrmHandler(LangPrefixHandler, tmpl_name='ko-hhrm'):
+class KoHhrmHandler(LangPrefixHandler, for_name='ko-hhrm'):
     __slots__ = ()
+
+
+# endregion
+
+
+# region fandom.com Handlers
+
+
+class WpHandler(TemplateHandler, for_name='wp', site='fandom.com'):
+    __slots__ = ()
+
+    def get_value(self):
+        tmpl = self.node
+        if not (args := tmpl.raw.arguments):
+            return None
+        elif len(args) in (2, 3):  # {{WP|lang|title|text (optional)}}
+            vals = tuple(a.value for a in args)
+            lang, title = vals[:2]
+            return Link.from_title(f'wikipedia:{lang}:{title}', tmpl.root, vals[2] if len(vals) == 3 else None)
+        return super().get_value()
+
+
+# endregion
 
 
 # region Wikipedia Handlers
 
 
-class WikipediaHandler(ABC, TemplateHandler, site='en.wikipedia.org'):
+class WikipediaHandler(TemplateHandler, ABC, site='en.wikipedia.org'):
     __slots__ = ()
 
 
-# class WikipediaStartDateHandler(WikipediaHandler, tmpl_name='start date'):
+# class WikipediaStartDateHandler(WikipediaHandler, for_name='start date'):
 #     __slots__ = ()
 #
 #
-# class WikipediaHorizontalListHandler(WikipediaHandler, tmpl_name='hlist'):
+# class WikipediaHorizontalListHandler(WikipediaHandler, for_name='hlist'):
 #     __slots__ = ()
 
 
-class WikipediaTrackListHandler(WikipediaHandler, tmpl_name='tracklist', basic=False):
+class WikipediaTrackListHandler(WikipediaHandler, for_name='tracklist', basic=False):
     __slots__ = ()
 
     def get_value(self):
