@@ -137,6 +137,11 @@ class TemplateTest(WikiNodesTest):
         }
         self.assert_equal(expected, dict(template.value))
 
+    def test_hlist(self):
+        hlist = Template('{{hlist|[[Monday Kiz (singer)|Monday Kiz]]|[[Punch (singer)|Punch]]}}')
+        expected = [Link('[[Monday Kiz (singer)|Monday Kiz]]'), Link('[[Punch (singer)|Punch]]')]
+        self.assert_equal(expected, hlist.value)
+
     def test_empty_zip(self):
         self.assertIs(None, Template('{{test}}').zipped)
 
