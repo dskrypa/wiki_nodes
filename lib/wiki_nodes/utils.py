@@ -8,19 +8,9 @@ import re
 from collections import UserDict
 from contextlib import contextmanager
 from threading import RLock
-from typing import TYPE_CHECKING, TypeVar, Sequence, Iterator, Mapping, Any, Callable, MutableMapping, Generic, overload
+from typing import TypeVar, Sequence, Iterator, Callable, MutableMapping, Generic, overload
 
-if TYPE_CHECKING:
-    from wikitextparser import WikiText
-
-__all__ = [
-    'strip_style',
-    'partitioned',
-    'ClearableCachedPropertyMixin',
-    'IntervalCoverageMap',
-    'short_repr',
-    'wiki_attr_values',
-]
+__all__ = ['strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap', 'short_repr']
 
 T = TypeVar('T')
 Obj = TypeVar('Obj')
@@ -81,12 +71,9 @@ class ClearableCachedPropertyMixin:
         cached_properties = {}
         for clz in cls.mro():
             if clz == cls:
-                try:
-                    for k, v in cls.__dict__.items():
-                        if isinstance(v, cached_property):
-                            cached_properties[k] = v
-                except AttributeError:
-                    pass
+                for k, v in cls.__dict__.items():
+                    if isinstance(v, cached_property):
+                        cached_properties[k] = v
             else:
                 try:
                     # noinspection PyUnresolvedReferences

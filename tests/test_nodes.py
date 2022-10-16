@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 import logging
-from unittest import main, TestCase
-from unittest.mock import Mock
+from unittest import main
+from unittest.mock import patch
 
 from wiki_nodes import as_node, Root, Link, List, String, Template, CompoundNode, Tag, Node, BasicNode
 from wiki_nodes.testing import WikiNodesTest, RedirectStreams
@@ -11,6 +11,13 @@ log = logging.getLogger(__name__)
 
 
 class NodeParsingTest(WikiNodesTest):
+    def test_no_content(self):
+        self.assertIs(None, as_node(' '))
+
+    def test_no_attr(self):
+        with patch('wiki_nodes.nodes.parsing.get_span_obj_map', return_value={(0, 0): (None, '')}):
+            self.assert_equal(CompoundNode(' '), as_node(' '))
+
     def test_no_lists(self):
         node = as_node("""'''Kim Tae-hyeong''' ({{Korean\n    | hangul  = 김태형\n    | hanja   =\n    | rr      =\n    | mr      =\n    | context =\n}}; born February 11, 1988), better known as '''Paul Kim''' ({{Korean\n    | hangul  = 폴킴\n    | hanja   =\n    | rr      =\n    | mr      =\n    | context =\n}}) is a South Korean singer. He debuted in 2014 and has released two extended plays and one full-length album in two parts: ''The Road'' (2017) and ''Tunnel'' (2018).""")
         self.assertTrue(not any(isinstance(n, List) for n in node))

@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
+import sys
 from unittest import main, TestCase
 
-from wiki_nodes.testing import WikiNodesTest
+from wiki_nodes.testing import WikiNodesTest, sealed_mock, RedirectStreams
 
 
 class TestHelperTest(TestCase):
@@ -40,6 +41,16 @@ class TestHelperTest(TestCase):
             self.assertIn('- [[test]]\n+ [[test]]\n\n?         \n+\n', str(e))
         else:
             self.fail('No AssertionError was raised')
+
+    def test_sealed_mock(self):
+        with self.assertRaises(AttributeError):
+            _ = sealed_mock().foo
+
+    def test_redirect_stderr(self):
+        with RedirectStreams() as streams:
+            print('test', file=sys.stderr)
+
+        self.assertEqual('test\n', streams.stderr)
 
 
 if __name__ == '__main__':

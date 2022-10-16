@@ -176,6 +176,16 @@ class CachedPropertyTest(TestCase):
         self.assertEqual(1, len(set(times)))
         self.assertEqual(2, foo.last)
 
+    def test_value_found_on_first_try(self):
+        class Foo:
+            @cached_property
+            def bar(self):
+                return 1
+
+        foo = Foo()
+        self.assertEqual(1, foo.bar)
+        self.assertEqual(1, Foo.bar.__get__(foo, Foo))
+
 
 if __name__ == '__main__':
     main(exit=False, verbosity=2)
