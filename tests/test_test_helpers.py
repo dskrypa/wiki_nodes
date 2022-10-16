@@ -3,6 +3,7 @@
 import sys
 from unittest import main, TestCase
 
+from wiki_nodes.nodes import List, ListEntry
 from wiki_nodes.testing import WikiNodesTest, sealed_mock, RedirectStreams
 
 
@@ -51,6 +52,15 @@ class TestHelperTest(TestCase):
             print('test', file=sys.stderr)
 
         self.assertEqual('test\n', streams.stderr)
+
+    def test_assert_equal_vanilla_error(self):
+        tester = WikiNodesTest()
+        try:
+            tester.assert_equal([ListEntry('bar'), ListEntry('baz')], List('* foo\n** bar\n** baz\n')[0].children)
+        except AssertionError as e:
+            self.assertRegex(str(e), r'Lists differ:.*?\] != \[.*')
+        else:
+            self.fail('No AssertionError was raised')
 
 
 if __name__ == '__main__':

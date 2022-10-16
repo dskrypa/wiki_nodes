@@ -329,8 +329,12 @@ class String(BasicNode):
     def __hash__(self) -> int:
         return hash(self.__class__) ^ hash(self.value)
 
-    def __add__(self, other) -> String:
-        return String(self.raw.string + other.raw.string, self.root)
+    def __add__(self, other: Union[Node, str]) -> String:
+        try:
+            other_str = other.raw.string
+        except AttributeError:
+            other_str = other
+        return String(self.raw.string + other_str, self.root)
 
     def __bool__(self) -> bool:
         return bool(self.value)
@@ -379,9 +383,11 @@ class Link(BasicNode):
 
     def __repr__(self) -> str:
         if self.root and (site := self.root.site):
-            parts = site.split('.')[:-1]            # omit domain
-            if parts[0] in {'www', 'wiki', 'en'}:   # omit common prefixes
+            parts = site.split('.')
+            if parts[0] in {'www', 'wiki', 'en'}:                       # omit common prefixes
                 parts = parts[1:]
+            if len(parts) > 1 and parts[-1] in {'org', 'com', 'net'}:   # omit common suffixes
+                parts = parts[:-1]
             site = '.'.join(parts)
             return f'<{self.__class__.__name__}:{self._str!r}@{site}>'
         return f'<{self.__class__.__name__}:{self._str!r}>'
@@ -498,6 +504,9 @@ class ListEntry(CompoundNode):
                     self._children = as_list.sublists()[0].string
                 except IndexError:
                     self._children = None
+        else:
+            self.value = self.raw
+            self._children = None
 
     def __repr__(self) -> str:
         if self._children:
@@ -535,10 +544,13 @@ class ListEntry(CompoundNode):
 
     def _extend(self, text: str, convert: bool = True):
         self.clear_cached_properties()
+        # TODO: Clean this up... this creates a mess
         text = f'** {text}'
+        # text = f': {text}'
         if self._children is None:
             if convert and self.value is not None:
-                self._children = f'** {self.value.raw.string}\n{text}'
+                self._children = f'** {self.value.raw.string}\n{text}'  # noqa
+                # self._children = f': {self.value.raw.string}\n{text}'
                 self.value = None
                 self.raw = WikiText(self._children)
             else:
@@ -599,14 +611,16 @@ class List(CompoundNode, method='get_lists'):
 
     def as_dict(self, sep: str = ':', multiline=None) -> dict[Union[str, N], Optional[N]]:
         data = {}
-        node_fn = lambda x: as_node(x.strip(), self.root, self.preserve_comments)
+
+        def node_fn(node_str: str):
+            return as_node(node_str.strip(), self.root, self.preserve_comments)
 
         def _add_kv(key, val):
             # log.debug(f'Storing key={key!r} val={val!r}')
             if isinstance(key, String):
                 data[key.value] = val
             elif isinstance(key, Link):
-                data[key.text] = val
+                data[key.show] = val
             else:
                 data[key.raw.string] = val
                 log.log(9, f'Unexpected type for List.as_dict {key=!r} with {val=!r} on {self.root}')

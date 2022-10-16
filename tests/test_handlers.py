@@ -142,8 +142,7 @@ class TemplateTest(WikiNodesTest):
 
     def test_basic_zip(self):
         tmpl = Template('{{test|k1=a|v1=1|k2=b|v2=2|foo=bar}}')
-        expected = MappingNode(tmpl.raw)
-        expected.update(a='1', b='2', foo='bar')
+        expected = MappingNode(tmpl.raw, content={'a': '1', 'b': '2', 'foo': 'bar'})
         self.assert_equal(expected, tmpl.zipped)
 
     def test_unexpected_zip(self):
