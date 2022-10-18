@@ -877,17 +877,20 @@ class Root(Node):
 
     @cached_property
     def sections(self) -> Section:
-        sections = iter(self.raw.sections)
+        sections: Iterator[_Section] = iter(self.raw.sections)
         root = Section(next(sections), self, self.preserve_comments)
         last_by_level = {0: root}
+        last_level = 0
         for sec in sections:
-            parent_lvl = sec.level - 1
-            while parent_lvl > 0 and parent_lvl not in last_by_level:
-                parent_lvl -= 1
-            parent = last_by_level[parent_lvl]
+            level = sec.level
+            if last_level >= level:
+                last_by_level = {k: v for k, v in last_by_level.items() if k < level or k == 0}
+            last_level = level
+
+            parent = last_by_level[max(last_by_level)]
             section = Section(sec, self, self.preserve_comments)
             parent.children[section.title] = section
-            last_by_level[section.level] = section
+            last_by_level[level] = section
         return root
 
 
@@ -895,6 +898,7 @@ class Section(Node, ContainerNode, method='get_sections'):
     raw: _Section
     title: str
     level: int
+    children: dict[str, Section]
 
     def __init__(
         self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = 0
@@ -907,25 +911,28 @@ class Section(Node, ContainerNode, method='get_sections'):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
-    def __getitem__(self, item: str) -> Section:
-        return self.children[item]
+    def __getitem__(self, title: str) -> Section:
+        return self.children[title]
+
+    def __contains__(self, title: str) -> bool:
+        return title in self.children
 
     def __iter__(self) -> Iterator[Section]:
         return iter(self.children.values())
 
     def _formatted_title(self) -> str:
-        bars = "=" * self.level
+        bars = '=' * self.level
         return f'{bars}{self.raw.title}{bars}'
 
     def _add_subsection(self, title: str, nodes: Iterable[Node], delim: str = ' '):
-        level = self.level + 1
-        raw = f'{"=" * level}{title}{"=" * level}\n{delim.join(n.raw.string for n in nodes)}'
+        bars = '=' * (self.level + 1)
+        raw = f'{bars}{title}{bars}\n{delim.join(n.raw.string for n in nodes)}'
         self.children[title] = self.__class__(raw, self.root, self.preserve_comments, 1)
 
     @property
     def depth(self) -> int:
         if self.children:
-            return max(c.depth for c in self.children.values()) + 1
+            return max(section.depth for section in self.children.values()) + 1
         return 0
 
     def find(self, title: str, default: None = _NotSet) -> Optional[Section]:
@@ -945,34 +952,11 @@ class Section(Node, ContainerNode, method='get_sections'):
 
     @cached_property
     def content(self):
-        if self.level == 0:                                 # without .string here, .tags() returns the full page's tags
-            raw = self.raw.string.strip()
+        if self.level == 0:
+            raw = self.raw.string.strip()  # without .string here, .tags() returns the full page's tags
             node = as_node(raw, self.root, self.preserve_comments)
-            if type(node) is CompoundNode:                          # Split infobox / templates from first paragraph
-                non_basic = []
-                remainder = []
-                children = iter(node)
-                found_infobox = False
-                for child in children:
-                    if isinstance(child, String):
-                        # log.debug(f'Splitting section with {len(non_basic)} non-basic nodes before {short_repr(child)}')
-                        remainder.append(child)
-                        break
-                    elif isinstance(child, Link) and not child.title.lower().startswith('file:'):
-                        # log.debug(f'Splitting section with {len(non_basic)} non-basic nodes before {short_repr(child)}')
-                        remainder.append(child)
-                        break
-                    else:
-                        if isinstance(child, Template) and 'infobox' in child.name.lower():
-                            found_infobox = True
-                        non_basic.append(child)
-                remainder.extend(children)
-                if found_infobox and non_basic and remainder:
-                    # log.debug(f'Rebuilding section 0 content for {self.root}')
-                    node = CompoundNode.from_nodes(non_basic, self.root, self.preserve_comments)
-                    node.children.append(CompoundNode.from_nodes(remainder, self.root, self.preserve_comments, ' '))
-            #     else:
-            #         log.debug(f'Using original section 0 content for {self.root}')
+            if type(node) is CompoundNode:
+                node = self._process_compound_root_content(node)
             # else:
             #     log.debug(f'Using original section 0 content for {self.root}')
             return node
@@ -981,6 +965,35 @@ class Section(Node, ContainerNode, method='get_sections'):
         if self.children:
             content = content.partition(next(iter(self))._formatted_title())[0].strip()
         return as_node(content, self.root, self.preserve_comments)    # chop off the header
+
+    def _process_compound_root_content(self, node: CompoundNode) -> CompoundNode:
+        # Split infobox / templates from first paragraph
+        non_basic = []
+        remainder = []
+        children = iter(node)
+        found_infobox = False
+        for child in children:
+            if isinstance(child, String):
+                # log.debug(f'Splitting section with {len(non_basic)} non-basic nodes before {short_repr(child)}')
+                remainder.append(child)
+                break
+            elif isinstance(child, Link) and not child.title.lower().startswith('file:'):
+                # log.debug(f'Splitting section with {len(non_basic)} non-basic nodes before {short_repr(child)}')
+                remainder.append(child)
+                break
+            else:
+                if isinstance(child, Template) and 'infobox' in child.lc_name:
+                    found_infobox = True
+                non_basic.append(child)
+
+        remainder.extend(children)
+        if found_infobox and non_basic and remainder:
+            # log.debug(f'Rebuilding section 0 content for {self.root}')
+            node = CompoundNode.from_nodes(non_basic, self.root, self.preserve_comments)
+            node.children.append(CompoundNode.from_nodes(remainder, self.root, self.preserve_comments, ' '))
+        # else:
+        #     log.debug(f'Using original section 0 content for {self.root}')
+        return node
 
     def processed(
         self,
@@ -1008,152 +1021,173 @@ class Section(Node, ContainerNode, method='get_sections'):
             return content
 
         if convert_maps:
-            children = []
-            did_convert = False
-            last = len(content) - 1
-            for i, child in enumerate(content):
-                if isinstance(child, List) and (len(child) > 1 or (i < last and isinstance(content[i + 1], List))):
-                    try:
-                        as_map = child.as_mapping()
-                    except Exception:
-                        # log.debug(f'Was not a mapping: {short_repr(child)}', exc_info=True)
-                        pass
-                    else:
-                        if as_map:
-                            did_convert = True
-                            child = as_map
-                        #     log.debug(f'Successfully converted to mapping: {short_repr(child)}')
-                        # else:
-                        #     log.debug(f'Was not a mapping: {short_repr(child)}')
-
-                children.append(child)
-
-            if did_convert:
-                content.children.clear()
-                content.children.extend(children)
-
+            content = self._process_convert_maps(content)
         if fix_dl_last_none:
-            children = []
-            did_fix = False
-            last_map, last_key = None, None
-            for child in content:
-                if isinstance(child, List):
-                    if last_map:
-                        did_fix = True
-                        last_map[last_key] = child
-                        last_map, last_key = None, None
-                    else:
-                        children.append(child)
-                elif isinstance(child, MappingNode):
-                    children.append(child)
-                    try:
-                        key, val = list(child.items())[-1]
-                    except IndexError:
-                        last_map, last_key = None, None
-                    else:
-                        if val is None:
-                            last_map, last_key = child, key
-                        else:
-                            last_map, last_key = None, None
+            content = self._process_fix_dl_last_none(content)
+        if fix_nested_dl_ul_ol:
+            content = self._process_fix_nested_dl_ul_ol(content)
+        if merge_maps:
+            content = self._process_merge_maps(content)
+        if fix_dl_key_as_header:
+            content = self._process_fix_dl_key_as_header(content)
+
+        return content
+
+    def _process_convert_maps(self, content: CompoundNode) -> CompoundNode:  # noqa
+        children = []
+        did_convert = False
+        last = len(content) - 1
+        for i, child in enumerate(content):
+            if isinstance(child, List) and (len(child) > 1 or (i < last and isinstance(content[i + 1], List))):
+                try:
+                    as_map = child.as_mapping()
+                except Exception:  # noqa
+                    # log.debug(f'Was not a mapping: {short_repr(child)}', exc_info=True)
+                    pass
+                else:
+                    if as_map:
+                        did_convert = True
+                        child = as_map
+                    #     log.debug(f'Successfully converted to mapping: {short_repr(child)}')
+                    # else:
+                    #     log.debug(f'Was not a mapping: {short_repr(child)}')
+
+            children.append(child)
+
+        if did_convert:
+            content.children.clear()
+            content.children.extend(children)
+
+        return content
+
+    def _process_fix_dl_last_none(self, content: CompoundNode) -> CompoundNode:  # noqa
+        children = []
+        did_fix = False
+        last_map, last_key = None, None
+        for child in content:
+            if isinstance(child, List):
+                if last_map:
+                    did_fix = True
+                    last_map[last_key] = child
+                    last_map, last_key = None, None
                 else:
                     children.append(child)
+            elif isinstance(child, MappingNode):
+                children.append(child)
+                try:
+                    key, val = list(child.items())[-1]
+                except IndexError:
                     last_map, last_key = None, None
-
-            if did_fix:
-                content.children.clear()
-                content.children.extend(children)
-
-        if fix_nested_dl_ul_ol:
-            children = []
-            did_fix = False
-            last_list, last_entry = None, None
-            for child in content:
-                if isinstance(child, MappingNode):
-                    children.append(child)
-                    try:
-                        key, val = list(child.items())[-1]
-                    except IndexError:
-                        last_list, last_entry = None, None
+                else:
+                    if val is None:
+                        last_map, last_key = child, key
                     else:
-                        if isinstance(val, List) and val.start_char == '*':
-                            last_list = val
-                            last_entry = val[-1]
-                        else:
-                            last_list, last_entry = None, None
-                elif isinstance(child, List):
-                    if last_list and child.start_char == '#':
-                        did_fix = True
-                        last_entry.extend(child)
-                    elif last_list and child.start_char == '*':
-                        did_fix = True
-                        last_list.extend(child)
-                        last_list = child
-                        last_entry = child[-1]
+                        last_map, last_key = None, None
+            else:
+                children.append(child)
+                last_map, last_key = None, None
+
+        if did_fix:
+            content.children.clear()
+            content.children.extend(children)
+
+        return content
+
+    def _process_fix_nested_dl_ul_ol(self, content: CompoundNode) -> CompoundNode:  # noqa
+        children = []
+        did_fix = False
+        last_list, last_entry = None, None
+        for child in content:
+            if isinstance(child, MappingNode):
+                children.append(child)
+                try:
+                    key, val = list(child.items())[-1]
+                except IndexError:
+                    last_list, last_entry = None, None
+                else:
+                    if isinstance(val, List) and val.start_char == '*':
+                        last_list = val
+                        last_entry = val[-1]
                     else:
-                        children.append(child)
                         last_list, last_entry = None, None
+            elif isinstance(child, List):
+                if last_list and child.start_char == '#':
+                    did_fix = True
+                    last_entry.extend(child)
+                elif last_list and child.start_char == '*':
+                    did_fix = True
+                    last_list.extend(child)
+                    last_list = child
+                    last_entry = child[-1]
                 else:
                     children.append(child)
                     last_list, last_entry = None, None
+            else:
+                children.append(child)
+                last_list, last_entry = None, None
 
-            if did_fix:
-                content.children.clear()
-                content.children.extend(children)
+        if did_fix:
+            content.children.clear()
+            content.children.extend(children)
 
-        if merge_maps:
-            children = []
-            did_merge = False
-            last_map = None
-            for child in content:
-                if isinstance(child, MappingNode):
-                    if last_map:
-                        last_map.update(child)
-                        did_merge = True
-                    else:
-                        children.append(child)
+        return content
 
-                    last_map = child
-                else:
-                    children.append(child)
-                    last_map = None
-
-            if did_merge:
-                content.children.clear()
-                content.children.extend(children)
-
-        if fix_dl_key_as_header:
-            children = []
-            did_fix = False
-            title = None            # type: Optional[str]
-            subsection_nodes = []
-            for child in content:
-                new_title = None
-                if isinstance(child, List) and len(child) == 1 and child.raw.string.startswith(';'):
-                    title_node = child.children[0].value
-                    if isinstance(title_node, String):
-                        new_title = title_node.value
-                    elif title_node.__class__ is CompoundNode and title_node.only_basic:
-                        new_title = ' '.join(str(n.show if isinstance(n, Link) else n.value) for n in title_node)
-
-                if new_title:
-                    if title:
-                        did_fix = True
-                        self._add_subsection(title, subsection_nodes)
-                        subsection_nodes = []
-
-                    title = new_title
-                elif title:
-                    subsection_nodes.append(child)
+    def _process_merge_maps(self, content: CompoundNode) -> CompoundNode:  # noqa
+        children = []
+        did_merge = False
+        last_map = None
+        for child in content:
+            if isinstance(child, MappingNode):
+                if last_map:
+                    last_map.update(child)
+                    did_merge = True
                 else:
                     children.append(child)
 
-            if title:
-                did_fix = True
-                self._add_subsection(title, subsection_nodes)
+                last_map = child
+            else:
+                children.append(child)
+                last_map = None
 
-            if did_fix:
-                content.children.clear()
-                content.children.extend(children)
+        if did_merge:
+            content.children.clear()
+            content.children.extend(children)
+
+        return content
+
+    def _process_fix_dl_key_as_header(self, content: CompoundNode) -> CompoundNode:
+        children = []
+        did_fix = False
+        title = None  # type: Optional[str]
+        subsection_nodes = []
+        for child in content:
+            new_title = None
+            if isinstance(child, List) and len(child) == 1 and child.raw.string.startswith(';'):
+                title_node = child.children[0].value
+                if isinstance(title_node, String):
+                    new_title = title_node.value
+                elif title_node.__class__ is CompoundNode and title_node.only_basic:  # noqa
+                    new_title = ' '.join(str(n.show if isinstance(n, Link) else n.value) for n in title_node)  # noqa
+
+            if new_title:
+                if title:
+                    did_fix = True
+                    self._add_subsection(title, subsection_nodes)
+                    subsection_nodes = []
+
+                title = new_title
+            elif title:
+                subsection_nodes.append(child)
+            else:
+                children.append(child)
+
+        if title:
+            did_fix = True
+            self._add_subsection(title, subsection_nodes)
+
+        if did_fix:
+            content.children.clear()
+            content.children.extend(children)
 
         return content
 

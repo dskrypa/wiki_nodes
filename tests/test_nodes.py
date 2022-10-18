@@ -46,6 +46,16 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual(Template('{{n/a}}'), root_section['two'].content)
         self.assertIs(None, root_section['two']['two a'].content)
 
+    def test_section_parents(self):
+        node = Root('==a==\n===b===\n==c==\n====d====\n==e==\n===f===\n====g====\n===h===\n====i====\n')
+        root = node.sections
+        self.assertIn('b', root['a'])
+        self.assertIn('d', root['c'])
+        self.assertIn('f', root['e'])
+        self.assertIn('g', root['e']['f'])
+        self.assertIn('h', root['e'])
+        self.assertIn('i', root['e']['h'])
+
     def test_invalid_raw(self):
         with self.assertRaisesRegex(ValueError, 'Invalid wiki Tag value'):
             Tag('[[test]]')
