@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 
-from cli_command_parser import Command, Option, Flag, Positional, main, inputs
+from cli_command_parser import Command, Option, Flag, Positional, TriFlag, main
 
 from wiki_nodes.__version__ import __author_email__, __version__  # noqa
 
 MODES = ('raw', 'headers', 'reprs', 'content', 'processed', 'title')
 
 
-class WikiPageViewer(Command, description='View a Wiki page'):
+class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='-'):
     url = Positional(help='A Wiki page URL')
     mode = Option('-m', choices=MODES, default='raw', help='Page display mode')
+    recursive = TriFlag('-r', alt_short='-R', alt_prefix='not', help='Whether nodes should be printed recursively')
     section = Option('-s', help='The section to view')
     index = Option('-i', type=int, nargs=(1, 2), help='Index or slice within the selected node/section to view')
     debug = Flag('-d', help='Show debug logging')
@@ -45,33 +46,9 @@ class WikiPageViewer(Command, description='View a Wiki page'):
                 index = self.index[0]
                 nodes = [node.processed()[index] for node in nodes]
 
+        kwargs = {'recurse': self.recursive} if self.recursive is not None else {}
         for node in nodes:
-            self.print_node(node)
-
-    def print_node(self, node):
-        from wiki_nodes.nodes import Section
-
-        indent = 0
-        if self.mode == 'raw':
-            node.raw_pprint()
-        elif self.mode == 'headers':
-            try:
-                print(f'{"=" * node.level}{node.title}{"=" * node.level}')  # noqa
-            except AttributeError:
-                raise ValueError(f'Invalid mode={self.mode!r} for the selected {node=}')
-            indent += 4
-        elif self.mode in ('reprs', 'content', 'processed'):
-            if self.mode == 'content':
-                getattr(node, 'content', node).pprint(indent)
-            elif self.mode == 'processed':
-                try:
-                    node.processed().pprint(indent)  # noqa
-                except AttributeError:
-                    raise ValueError(f'Invalid mode={self.mode!r} for the selected {node=}')
-
-        if isinstance(node, Section):
-            for child in node.children.values():
-                child.pprint(self.mode, indent=indent, recurse=True)
+            node.pprint(self.mode, **kwargs)
 
     def print_title(self):
         from wiki_nodes.http import MediaWikiClient
