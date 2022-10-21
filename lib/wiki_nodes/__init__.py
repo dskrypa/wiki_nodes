@@ -52,6 +52,8 @@ Example usage::
 
 from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
 from .http import MediaWikiClient
-from .nodes import Node, BasicNode, CompoundNode, MappingNode, Tag, String, Link, ListEntry, List, Table
-from .nodes import Template, Root, Section, as_node, TableSeparator, N, AnyNode
+from .nodes.nodes import Node, BasicNode, ContainerNode, CompoundNode, MappingNode, Tag, String, Link
+from .nodes.nodes import ListEntry, List, Table, Template, Root, Section, TableSeparator, N, AnyNode
+from .nodes.parsing import as_node
+from .nodes.typing import is_container_with_ele, is_compound_with_ele
 from .page import WikiPage
