@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from pathlib import Path
 from unittest import main
 
 from wiki_nodes import Template, String, Link, as_node
@@ -7,6 +8,11 @@ from wiki_nodes.page import WikiPage
 from wiki_nodes.testing import WikiNodesTest, mocked_client
 
 SITE = 'en.wikipedia.org'
+DATA_DIR = Path(__file__).resolve().parent.joinpath('data', 'test_page')
+
+
+def load_data(name: str) -> str:
+    return DATA_DIR.joinpath(name).read_text('utf-8')
 
 
 class WikiPageTest(WikiNodesTest):
@@ -120,6 +126,15 @@ class WikiPageTest(WikiNodesTest):
         self.assertSetEqual(expected, page.links())
 
     # endregion
+
+
+class FullPageTests(WikiNodesTest):
+    def test_start_up_ost(self):
+        site = 'kpop.fandom.com'
+        text = load_data('kpop_fandom_Start-Up_OST.wiki')
+        page = WikiPage('Start-Up OST', site, text, ['OST'], client=mocked_client(site))
+        links = {link.title: link for link in page.find_all(Link)}
+        self.assertEqual(6, len(links))
 
 
 if __name__ == '__main__':

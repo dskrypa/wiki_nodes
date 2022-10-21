@@ -285,7 +285,7 @@ class NodeParsingTest(WikiNodesTest):
 
     def test_list_entry_extend_new(self):
         entry = ListEntry('test')
-        entry.extend(List('* foo\n** a\n** b\n')[0])
+        entry.extend(List('* foo\n** a\n** b\n')[0].sub_list)
         self.assert_equal([ListEntry(f'* {c}') for c in 'ab'], entry.children)
 
     def test_list_entry_extend_dict(self):

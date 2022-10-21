@@ -562,7 +562,7 @@ class ListEntry(CompoundNode[C]):
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
     @cached_property
-    def sub_list(self) -> Optional[List[C]]:
+    def sub_list(self) -> Optional[List[ListEntry[C]]]:
         if not self._children:
             return None
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
@@ -575,7 +575,7 @@ class ListEntry(CompoundNode[C]):
             return []
         return sub_list.children
 
-    def extend(self, list_node: List[C]):
+    def extend(self, list_node: List[ListEntry[C]]):
         if self._children is None:
             self.__dict__['sub_list'] = list_node
         else:
@@ -633,7 +633,7 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
     def children(self) -> list[ListEntry[C]]:
         return [ListEntry(val, self.root, self.preserve_comments) for val in map(str.strip, self.raw.fullitems)]
 
-    def extend(self, list_node: List[C]):
+    def extend(self, list_node: List[ListEntry[C]]):
         self.children.extend(list_node.children)
 
     def iter_flat(self) -> Iterator[C]:
@@ -1302,7 +1302,12 @@ def _find_all(node, node_cls: Type[N], recurse: bool = True, _recurse_first: boo
         if recurse:
             yield from node.find_all(node_cls, recurse=recurse, **kwargs)
     elif _recurse_first:
-        yield from node.find_all(node_cls, recurse=recurse, **kwargs)
+        try:
+            find_all = node.find_all
+        except AttributeError:
+            pass
+        else:
+            yield from find_all(node_cls, recurse=recurse, **kwargs)
 
 
 def iw_community_link_match(title: str) -> Optional[Match]:
