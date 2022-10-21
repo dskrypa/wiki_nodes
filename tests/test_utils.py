@@ -2,7 +2,7 @@
 
 from unittest import main, TestCase
 
-from wiki_nodes.utils import IntervalCoverageMap, short_repr, partitioned
+from wiki_nodes.utils import IntervalCoverageMap, short_repr, partitioned, rich_repr
 from wiki_nodes.version import LooseVersion, StrictVersion
 
 
@@ -79,6 +79,9 @@ class TestUtils(TestCase):
 
     def test_partitioned(self):
         self.assertEqual([[1, 2], [3, 4]], list(partitioned([1, 2, 3, 4], 2)))
+
+    def test_rich_repr_width(self):
+        self.assertEqual('[\n    0,\n    1,\n    2,\n    3,\n    4\n]', rich_repr(list(range(5)), 5))
 
 
 class TestVersion(TestCase):

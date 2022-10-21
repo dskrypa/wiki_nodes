@@ -53,6 +53,8 @@ class WikiPage(Root):
         self._categories = categories
         self._client = client
 
+    # region Dunder Methods
+
     def __repr__(self) -> str:
         return f'<{type(self).__name__}[{self.title!r} @ {self.site}]>'
 
@@ -71,10 +73,9 @@ class WikiPage(Root):
     def __lt__(self, other: WikiPage) -> bool:
         return self._sort_key < other._sort_key
 
-    @cached_property
-    def categories(self) -> set[str]:
-        """The lower-case categories for this page, with ignored prefixes (if applicable) filtered out"""
-        return {cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)}
+    # endregion
+
+    # region Links
 
     @cached_property
     def similar_name_link(self) -> Optional[Link]:
@@ -90,6 +91,29 @@ class WikiPage(Root):
         return None
 
     @cached_property
+    def as_link(self) -> Link:
+        return Link.from_title(self.title, self)
+
+    def links(self, unique: bool = True, special: bool = False, interwiki: bool = False) -> set[Link]:
+        """
+        :param unique: Only include links with unique titles
+        :param special: Include special (file, image, category, etc) links
+        :param interwiki: Include interwiki links
+        :return: The set of Link objects matching the specified filters
+        """
+        links = {ln for ln in self.find_all(Link) if (special or not ln.special) and (interwiki or not ln.interwiki)}
+        return set({link.title: link for link in links}.values()) if unique else links
+
+    # endregion
+
+    # region Metadata
+
+    @cached_property
+    def categories(self) -> set[str]:
+        """The lower-case categories for this page, with ignored prefixes (if applicable) filtered out"""
+        return {cat for cat in map(str.lower, self._categories) if not cat.startswith(self._ignore_category_prefixes)}
+
+    @cached_property
     def is_disambiguation(self) -> bool:
         return any('disambiguation' in cat for cat in self.categories)
 
@@ -98,14 +122,14 @@ class WikiPage(Root):
         return self.title.startswith('Template:')
 
     @cached_property
-    def as_link(self) -> Link:
-        return Link.from_title(self.title, self)
-
-    @cached_property
     def url(self) -> str:
         if self._client is not None:
             return self._client.url_for_article(self.title)
         raise AttributeError(f'Unable to determine URL when not initialized via MediaWikiClient')
+
+    # endregion
+
+    # region Content
 
     @cached_property
     def infobox(self) -> Optional[Template]:
@@ -115,12 +139,12 @@ class WikiPage(Root):
         values.
         """
         section_0_content = self.sections.content
-        if isinstance(section_0_content, Template) and 'infobox' in section_0_content.name.lower():
+        if isinstance(section_0_content, Template) and 'infobox' in section_0_content.lc_name:
             return section_0_content
         elif isinstance(section_0_content, CompoundNode):
             try:
-                for node in self.sections.content:
-                    if isinstance(node, Template) and 'infobox' in node.name.lower():
+                for node in section_0_content:
+                    if isinstance(node, Template) and 'infobox' in node.lc_name:
                         return node
             except Exception as e:
                 log.log(9, f'Error iterating over first section content of {self}: {e}')
@@ -141,14 +165,11 @@ class WikiPage(Root):
                     # log.debug(f'Found intro in node#{i}')
                     intro = node
                     break
-                elif isinstance(node, Tag) and node.name == 'div' and type(node.value) is CompoundNode:
+                elif isinstance(node, Tag) and _is_intro_tag(node):
                     # log.debug(f'Found intro in node#{i}')
                     intro = node.value
                     break
-                elif isinstance(node, Tag) and node.name == 'p' and node.attrs.get('id') == 'firstHeading':
-                    intro = node.value
-                    break
-                elif type(node) is CompoundNode and allowed_in_intro(node):
+                elif node.__class__ is CompoundNode and _allowed_in_intro(node):
                     # log.debug(f'Found intro in node#{i}')
                     intro = node
                     break
@@ -169,7 +190,7 @@ class WikiPage(Root):
                 for node in self.sections.content:
                     if node is self.infobox:
                         found_infobox = True
-                    elif found_infobox and type(node) is CompoundNode and starts_with_basic(node):
+                    elif found_infobox and node.__class__ is CompoundNode and _starts_with_basic(node):
                         intro = node
                         break
             except Exception:  # noqa
@@ -183,22 +204,20 @@ class WikiPage(Root):
 
         return intro
 
-    def links(self, unique: bool = True, special: bool = False, interwiki: bool = False) -> set[Link]:
-        """
-        :param unique: Only include links with unique titles
-        :param special: Include special (file, image, category, etc) links
-        :param interwiki: Include interwiki links
-        :return: The set of Link objects matching the specified filters
-        """
-        links = {ln for ln in self.find_all(Link) if (special or not ln.special) and (interwiki or not ln.interwiki)}
-        return set({link.title: link for link in links}.values()) if unique else links
+    # endregion
 
 
-def allowed_in_intro(node: CompoundNode) -> bool:
+def _allowed_in_intro(node: CompoundNode) -> bool:
     return node.only_basic or all(n.is_basic or (isinstance(n, Tag) and n.name == 'ref') for n in node)
 
 
-def starts_with_basic(node: CompoundNode) -> bool:
+def _is_intro_tag(node: Tag) -> bool:
+    if node.name == 'div' and node.value.__class__ is CompoundNode:
+        return True
+    return node.name == 'p' and node.attrs.get('id') == 'firstHeading'
+
+
+def _starts_with_basic(node: CompoundNode) -> bool:
     if first := next(iter(node), None):
         return first.is_basic
     return False

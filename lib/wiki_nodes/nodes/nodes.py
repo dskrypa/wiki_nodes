@@ -81,6 +81,8 @@ class Node(ClearableCachedPropertyMixin):
     def stripped(self, *args, **kwargs) -> str:
         return strip_style(self.raw.string, *args, **kwargs)
 
+    # region Internal Methods
+
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}()>'
 
@@ -102,18 +104,45 @@ class Node(ClearableCachedPropertyMixin):
             return False
         return self._compressed == other._compressed
 
+    # endregion
+
     @property
     def is_basic(self) -> Optional[bool]:
         return None
 
-    def raw_pprint(self):
-        print(self.raw.pformat())
+    # region Printing / Formatting Methods
 
-    def pprint(self, indentation: int = 0):
+    def raw_pprint(self):
+        _print(self.raw.pformat())
+
+    def _pprint(self, indentation: int = 0):
         _print(self.pformat(indentation))
 
     def pformat(self, indentation: int = 0):
         return (' ' * indentation) + repr(self)
+
+    def pprint(self, mode: str = 'reprs', indent: int = 0, recurse: bool = False):
+        if mode == 'raw':
+            self.raw_pprint()
+        elif mode == 'headers':  # Only implemented by Section
+            return
+        elif mode in {'reprs', 'content', 'processed'}:
+            self._pprint(indent)
+
+        if recurse:
+            try:
+                children = self.children  # noqa
+            except AttributeError:
+                return
+            indent += 4
+            try:
+                children = children.values()
+            except AttributeError:
+                pass
+            for child in children:
+                child.pprint(mode, indent, recurse)
+
+    # endregion
 
 
 class BasicNode(Node):
@@ -839,6 +868,7 @@ class Template(BasicNode, ContainerNode, attr='templates'):
 
 class Root(Node):
     site: OptStr
+    _interwiki_map: Optional[Mapping[str, str]]
 
     # Children = sections
     def __init__(
@@ -852,7 +882,7 @@ class Root(Node):
             page_text = WikiText(page_text.replace('\xa0', ' ').replace('\u200b', ''))
         super().__init__(page_text, None, preserve_comments)
         self.site = site
-        self._interwiki_map = interwiki_map                     # type: Optional[Mapping[str, str]]
+        self._interwiki_map = interwiki_map
 
     def __getitem__(self, item: str) -> Section:
         return self.sections[item]
@@ -864,11 +894,10 @@ class Root(Node):
 
     def find_all(self, node_cls: Type[N], recurse: bool = True, **kwargs) -> Iterator[N]:
         """
-        Find all descendent nodes of the given type.
+        Find all descendant nodes of the given type.
 
-        :param type node_cls: The class of :class:`Node` to find
-        :param bool recurse: Whether descendent nodes should be searched recursively or just the direct children of this
-          node
+        :param node_cls: The class of :class:`Node` to find
+        :param recurse: Whether descendant nodes should be searched recursively or just the direct children of this node
         :param kwargs: If specified, keys should be names of attributes of the discovered nodes, for which the value of
           the node's attribute must equal the provided value
         :return: Generator that yields :class:`Node` objects of the given type
@@ -908,6 +937,8 @@ class Section(Node, ContainerNode, method='get_sections'):
         self.level = self.raw.level
         self.children = {}  # populated by Root.sections
 
+    # region Internal Methods
+
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
@@ -920,14 +951,17 @@ class Section(Node, ContainerNode, method='get_sections'):
     def __iter__(self) -> Iterator[Section]:
         return iter(self.children.values())
 
-    def _formatted_title(self) -> str:
+    def _formatted_title(self, raw: bool = False) -> str:
         bars = '=' * self.level
-        return f'{bars}{self.raw.title}{bars}'
+        title = self.raw.title if raw else self.title
+        return f'{bars}{title}{bars}'
 
     def _add_subsection(self, title: str, nodes: Iterable[Node], delim: str = ' '):
         bars = '=' * (self.level + 1)
         raw = f'{bars}{title}{bars}\n{delim.join(n.raw.string for n in nodes)}'
         self.children[title] = self.__class__(raw, self.root, self.preserve_comments, 1)
+
+    # endregion
 
     @property
     def depth(self) -> int:
@@ -950,6 +984,15 @@ class Section(Node, ContainerNode, method='get_sections'):
             raise KeyError(f'Cannot find section={title!r} in {self} or any subsections')
         return default
 
+    def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
+        if content := self.content:
+            yield from _find_all(content, node_cls, recurse, **kwargs)
+        if recurse:
+            for child in self:
+                yield from _find_all(child, node_cls, recurse, **kwargs)
+
+    # region Content Processing Methods
+
     @cached_property
     def content(self):
         if self.level == 0:
@@ -963,7 +1006,7 @@ class Section(Node, ContainerNode, method='get_sections'):
 
         content = self.raw.contents.strip()
         if self.children:
-            content = content.partition(next(iter(self))._formatted_title())[0].strip()
+            content = content.partition(next(iter(self))._formatted_title(True))[0].strip()
         return as_node(content, self.root, self.preserve_comments)    # chop off the header
 
     def _process_compound_root_content(self, node: CompoundNode) -> CompoundNode:
@@ -1191,51 +1234,45 @@ class Section(Node, ContainerNode, method='get_sections'):
 
         return content
 
+    # endregion
+
+    # region Printing / Formatting Methods
+
     def pformat(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True) -> str:
-        formatted = []
-        if mode == 'raw':
-            formatted.append(self.raw.pformat())
-        elif mode == 'headers':
-            formatted.append(f'{" " * indent}{"=" * self.level}{self.title}{"=" * self.level}')
-            indent += 4
-        elif mode in ('reprs', 'content', 'processed'):
-            formatted.append(f'{" " * indent}{self}')
-            indent += 4
-            if mode == 'content':
-                formatted.append('None' if self.content is None else self.content.pformat(indent))
-            elif mode == 'processed':
-                formatted.append(self.processed().pformat(indent))
-
-        if recurse:
-            for child in self.children.values():
-                formatted.append(child.pformat(mode, indent=indent, recurse=recurse))
-
-        return '\n'.join(formatted)
+        return '\n'.join(self._pformat(mode, indent, recurse))
 
     def pprint(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True):
+        for line in self._pformat(mode, indent, recurse):
+            try:
+                print(line)
+            except OSError as e:
+                if e.errno == 22:
+                    break
+                else:
+                    raise
+
+    def _pformat(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True) -> Iterator[str]:
         if mode == 'raw':
-            _print(self.raw.pformat())
-        elif mode == 'headers':
-            _print(f'{" " * indent}{"=" * self.level}{self.title}{"=" * self.level}')
+            yield self.raw.pformat()
+        else:
+            indent_str = ' ' * indent
             indent += 4
-        elif mode in ('reprs', 'content', 'processed'):
-            _print(f'{" " * indent}{self}')
-            indent += 4
-            if mode == 'content':
-                self.content.pprint(indent)
-            elif mode == 'processed':
-                self.processed().pprint(indent)
+            if mode == 'headers':
+                yield f'{indent_str}{self._formatted_title()}'
+            elif mode in {'reprs', 'content', 'processed'}:
+                yield f'{indent_str}{self}'
+                if mode != 'reprs':
+                    content = self.content if mode == 'content' else self.processed()
+                    if content is None:
+                        yield 'None'
+                    else:
+                        yield content.pformat(indent)
 
         if recurse:
             for child in self.children.values():
-                child.pprint(mode, indent=indent, recurse=recurse)
+                yield from child._pformat(mode, indent=indent, recurse=recurse)
 
-    def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
-        if content := self.content:
-            yield from _find_all(content, node_cls, recurse, **kwargs)
-        if recurse:
-            for child in self:
-                yield from _find_all(child, node_cls, recurse, **kwargs)
+    # endregion
 
 
 def _print(*args, **kwargs):
