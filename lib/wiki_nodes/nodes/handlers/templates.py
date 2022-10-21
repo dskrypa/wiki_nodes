@@ -98,6 +98,11 @@ class TemplateHandler(NodeHandler[Template], root=True):
         mapping.update(zip(keys, values))
         return mapping
 
+    def make_disambiguation_link(self) -> Optional[Link]:
+        if title := getattr(self.node.root, 'title', None):
+            return Link(f'[[{title}_(disambiguation)]]', self.node.root)
+        return None
+
 
 # region Common Handlers
 
@@ -131,7 +136,81 @@ class AbbrHandler(TemplateHandler, for_name='abbr'):
         return [a.value for a in args]  # [short, long]
 
 
-class MainHandler(TemplateHandler, for_name='main'):
+# region Disambiguation Template Handlers
+
+
+class AboutHandler(TemplateHandler, for_name='about'):
+    __slots__ = ()
+
+    def get_value(self) -> list[Link]:
+        args = [arg.value for arg in self.node.raw.arguments if arg.positional]
+        links = [Link(f'[[{title}]]', self.node.root) for arg in args[2::2] if (title := arg.strip())]
+        n = len(args)
+        if (not args or n == 1 or (n > 3 and n % 2 == 0)) and (link := self.make_disambiguation_link()):
+            links.append(link)
+        return links
+
+
+class ForHandler(TemplateHandler, for_name='for'):
+    __slots__ = ()
+
+    def get_value(self) -> list[Link]:
+        args = [arg.value for arg in self.node.raw.arguments if arg.positional]
+        if len(args) < 2 and (link := self.make_disambiguation_link()):
+            return [link]
+        return [Link(f'[[{title}]]', self.node.root) for arg in args[1:] if (title := arg.strip())]
+
+
+class OtherUsesHandler(TemplateHandler, for_name='other uses'):
+    __slots__ = ()
+
+    def get_value(self) -> Optional[Link]:
+        if title := next((arg.value for arg in self.node.raw.arguments if arg.positional), None):
+            return Link(f'[[{title}_(disambiguation)]]', self.node.root)
+        return self.make_disambiguation_link()
+
+
+class OtherUsesOfHandler(TemplateHandler, for_name='other uses of'):
+    __slots__ = ()
+
+    def get_value(self) -> Optional[Link]:
+        if args := [arg.value for arg in self.node.raw.arguments if arg.positional][1:]:
+            return Link(f'[[{args[-1]}_(disambiguation)]]', self.node.root)
+        return self.make_disambiguation_link()
+
+
+class RedirectDistinguishForHandler(TemplateHandler, for_name='redirect-distinguish-for'):
+    __slots__ = ()
+
+    def get_value(self) -> list[Link]:
+        args = [arg.value for arg in self.node.raw.arguments if arg.positional]
+        links = [Link(f'[[{arg}]]', self.node.root) for arg in args[1::2]]
+        n = len(args)
+        if (n == 2 or n % 2 == 1) and (link := self.make_disambiguation_link()):
+            links.append(link)
+        return links
+
+
+class AboutDistinguishHandler(TemplateHandler, for_name='about-distinguish'):
+    __slots__ = ()
+
+    def get_value(self) -> list[Link]:
+        args = [arg.value for arg in self.node.raw.arguments if arg.positional]
+        links = []
+        for arg in args[1:]:
+            try:
+                title, text = arg.split('{{!}}')
+            except ValueError:
+                links.append(Link(f'[[{arg}]]', self.node.root))
+            else:
+                links.append(Link.from_title(title, self.node.root, text))
+        return links
+
+
+# endregion
+
+
+class MainHandler(TemplateHandler, for_names=('main', 'see also')):
     __slots__ = ()
 
     def get_all_pos_value(self, args: list[Argument]):
@@ -143,10 +222,6 @@ class MainHandler(TemplateHandler, for_name='main'):
                 value = Link.from_title(value.value, tmpl.root)
             return value
         return [as_node(a.value, tmpl.root, tmpl.preserve_comments) for a in args]
-
-
-class SeeAlsoHandler(MainHandler, for_name='see also'):
-    __slots__ = ()
 
 
 class InfoboxHandler(TemplateHandler, prefix='infobox', basic=False):

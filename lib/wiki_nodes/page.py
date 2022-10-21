@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Optional, Union, Mapping, Collection
 
 from wikitextparser import WikiText
 
-from .nodes import Root, Template, String, CompoundNode, Tag, Link
+from .nodes import Root, Template, String, CompoundNode, Tag, Link, ContainerNode
 from .utils import cached_property
 
 if TYPE_CHECKING:
@@ -27,36 +27,37 @@ log = logging.getLogger(__name__)
 
 
 class WikiPage(Root):
+    """
+    :param title: The page title
+    :param site: The site of origin for this page
+    :param content: The page content
+    :param categories: This page's categories
+    :param preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
+    :param interwiki_map: Mapping of interwiki link prefix to wiki URL
+    :param client: The MediaWikiClient from which this page originated
+    """
+
     _ignore_category_prefixes = ()
+
+    # region Dunder Methods
 
     def __init__(
         self,
         title: str,
         site: Optional[str],
         content: Union[str, WikiText],
-        categories: Collection[str],
+        categories: Collection[str] = (),
         preserve_comments: bool = False,
         interwiki_map: Mapping[str, str] = None,
         client: MediaWikiClient = None,
     ):
-        """
-        :param title: The page title
-        :param site: The site of origin for this page
-        :param content: The page content
-        :param categories: This page's categories
-        :param preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
-        :param interwiki_map: Mapping of interwiki link prefix to wiki URL
-        :param client: The MediaWikiClient from which this page originated
-        """
         super().__init__(content, site, preserve_comments=preserve_comments, interwiki_map=interwiki_map)
         self.title = title
         self._categories = categories
         self._client = client
 
-    # region Dunder Methods
-
     def __repr__(self) -> str:
-        return f'<{type(self).__name__}[{self.title!r} @ {self.site}]>'
+        return f'<{self.__class__.__name__}[{self.title!r} @ {self.site}]>'
 
     @cached_property
     def _sort_key(self) -> tuple[bool, str, Optional[str]]:
@@ -79,15 +80,32 @@ class WikiPage(Root):
 
     @cached_property
     def similar_name_link(self) -> Optional[Link]:
-        content = self.sections.content
-        if content.__class__ is CompoundNode and isinstance(content[0], Template) and content[0].name == 'about':
-            return Link.from_title(content[0][2].value, self)
+        """The first non-disambiguation link from the ``about`` template on this page, if any."""
+        try:
+            link = self.about_links[0]
+        except IndexError:
+            return None
+        if link.title != f'{self.title}_(disambiguation)':
+            return link
         return None
+
+    @cached_property
+    def about_links(self) -> list[Link]:
+        """
+        All links from the first `about <https://en.wikipedia.org/wiki/Template:About>`_ template on this page, if
+        any exist.
+        """
+        if about_tmpl := self.sections.find_one(Template, recurse=False, lc_name='about'):
+            return about_tmpl.value
+        else:
+            return []
 
     @cached_property
     def disambiguation_link(self) -> Optional[Link]:
         if any('articles needing clarification' in cat for cat in self.categories):
             return Link.from_title(f'{self.title}_(disambiguation)', self)
+        elif (about_links := self.about_links) and about_links[-1].title == f'{self.title}_(disambiguation)':
+            return about_links[-1]
         return None
 
     @cached_property
@@ -157,9 +175,12 @@ class WikiPage(Root):
         """
         error = False
         intro = None
+        content = self.sections.content
+        if not isinstance(content, ContainerNode):
+            content = (content,) if content else ()
         try:
-            # for i, node in enumerate(self.sections.content):
-            for node in self.sections.content:
+            # for i, node in enumerate(content):
+            for node in content:
                 # log.info(f'Processing node#{i}: {node.__class__.__name__}')
                 if isinstance(node, String) and not node.value.startswith('{{DISPLAYTITLE:'):
                     # log.debug(f'Found intro in node#{i}')
@@ -187,7 +208,7 @@ class WikiPage(Root):
         if intro is None and not error and self.infobox:
             found_infobox = False
             try:
-                for node in self.sections.content:
+                for node in content:
                     if node is self.infobox:
                         found_infobox = True
                     elif found_infobox and node.__class__ is CompoundNode and _starts_with_basic(node):

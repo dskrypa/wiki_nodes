@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Type, Union, Optional, TypeVar, Generic
+from typing import TYPE_CHECKING, Type, Union, Optional, TypeVar, Generic, Iterable
 
 if TYPE_CHECKING:
     from .nodes import Node  # noqa
@@ -32,7 +32,13 @@ class NodeHandler(ABC, Generic[N]):
     prefix: Optional[str] = None
 
     def __init_subclass__(
-        cls, for_name: str = None, prefix: str = None, site: str = None, root: bool = False, **kwargs
+        cls,
+        for_name: str = None,
+        for_names: Iterable[str] = (),
+        prefix: str = None,
+        site: str = None,
+        root: bool = False,
+        **kwargs,
     ):
         super().__init_subclass__(**kwargs)
         if root:
@@ -45,12 +51,9 @@ class NodeHandler(ABC, Generic[N]):
         if site is not None:
             cls.site = site
         if for_name:
-            cls.name = for_name
-            cls.prefix = None
-            try:
-                cls._site_name_handler_map[site][for_name] = cls
-            except KeyError:
-                cls._site_name_handler_map[site] = {for_name: cls}
+            cls.__register_names(site, for_name)
+        elif for_names:
+            cls.__register_names(site, *for_names)
         elif prefix:
             cls.prefix = prefix
             cls.name = None
@@ -60,6 +63,16 @@ class NodeHandler(ABC, Generic[N]):
                 cls._site_prefix_handler_map[site] = {prefix: cls}
         elif ABC not in cls.__bases__:
             raise TypeError(f'Missing required keyword argument for class={cls.__name__} init: for_name or prefix')
+
+    @classmethod
+    def __register_names(cls, site: Optional[str], *names: str):
+        cls.name = names[0]
+        cls.prefix = None
+        for name in names:
+            try:
+                cls._site_name_handler_map[site][name] = cls
+            except KeyError:
+                cls._site_name_handler_map[site] = {name: cls}
 
     def __init__(self, node: N):
         self.node = node
