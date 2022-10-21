@@ -14,6 +14,7 @@ class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='
     section = Option('-s', help='The section to view')
     index = Option('-i', type=int, nargs=(1, 2), help='Index or slice within the selected node/section to view')
     debug = Flag('-d', help='Show debug logging')
+    categories = Flag('-c', help='Show page categories')
 
     def _init_command_(self):
         import logging
@@ -33,6 +34,9 @@ class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='
         from wiki_nodes import MediaWikiClient, Section
 
         page = MediaWikiClient.page_for_article(self.url)
+        if self.categories:
+            self._print_categories(page)
+
         if self.section:
             nodes = page.find_all(Section, title=self.section)
         else:
@@ -55,6 +59,11 @@ class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='
 
         client = MediaWikiClient(self.url, nopath=True)
         print(client.article_url_to_title(self.url))
+        if self.categories:
+            self._print_categories(client.page_for_article(self.url))
+
+    def _print_categories(self, page):
+        print(f'Categories for {page.title}:\n' + '\n'.join(sorted(page.categories)))
 
 
 if __name__ == '__main__':
