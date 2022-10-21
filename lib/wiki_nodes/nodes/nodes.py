@@ -114,8 +114,8 @@ class Node(ClearableCachedPropertyMixin):
 
     # region Printing / Formatting Methods
 
-    def raw_pprint(self):
-        _print(self.raw.pformat())
+    def raw_pprint(self, pretty: bool = False):
+        _print(self.raw.pformat() if pretty else self.raw.string)
 
     def _pprint(self, indentation: int = 0):
         _print(self.pformat(indentation))
@@ -124,8 +124,8 @@ class Node(ClearableCachedPropertyMixin):
         return (' ' * indentation) + repr(self)
 
     def pprint(self, mode: str = 'reprs', indent: int = 0, recurse: bool = False):
-        if mode == 'raw':
-            self.raw_pprint()
+        if mode in {'raw', 'raw-pretty'}:
+            self.raw_pprint(mode == 'raw-pretty')
         elif mode == 'headers':  # Only implemented by Section
             return
         elif mode in {'reprs', 'content', 'processed'}:
@@ -1262,8 +1262,10 @@ class Section(ContainerNode['Section'], method='get_sections'):
                     raise
 
     def _pformat(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True) -> Iterator[str]:
-        if mode == 'raw':
+        if mode == 'raw-pretty':
             yield self.raw.pformat()
+        elif mode == 'raw':
+            yield self.raw.string
         else:
             indent_str = ' ' * indent
             indent += 4

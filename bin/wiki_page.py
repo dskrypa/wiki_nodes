@@ -4,7 +4,7 @@ from cli_command_parser import Command, Option, Flag, Positional, TriFlag, main
 
 from wiki_nodes.__version__ import __author_email__, __version__  # noqa
 
-MODES = ('raw', 'headers', 'reprs', 'content', 'processed', 'title')
+MODES = ('raw', 'raw-pretty', 'headers', 'reprs', 'content', 'processed', 'title')
 
 
 class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='-'):
