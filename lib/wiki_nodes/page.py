@@ -12,7 +12,7 @@ Notes:\n
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional, Union, Iterable, Mapping
+from typing import TYPE_CHECKING, Optional, Union, Mapping, Collection
 
 from wikitextparser import WikiText
 
@@ -34,7 +34,7 @@ class WikiPage(Root):
         title: str,
         site: Optional[str],
         content: Union[str, WikiText],
-        categories: Iterable[str],
+        categories: Collection[str],
         preserve_comments: bool = False,
         interwiki_map: Mapping[str, str] = None,
         client: MediaWikiClient = None,
@@ -125,7 +125,7 @@ class WikiPage(Root):
     def url(self) -> str:
         if self._client is not None:
             return self._client.url_for_article(self.title)
-        raise AttributeError(f'Unable to determine URL when not initialized via MediaWikiClient')
+        raise AttributeError('Unable to determine URL when not initialized via MediaWikiClient')
 
     # endregion
 

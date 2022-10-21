@@ -6,10 +6,13 @@ Helpers for unit tests
 
 from __future__ import annotations
 
+import json
 import sys
 from contextlib import AbstractContextManager
 from difflib import unified_diff
+from functools import lru_cache
 from io import StringIO
+from pathlib import Path
 from typing import Any
 from unittest import TestCase
 from unittest.mock import Mock, seal, patch
@@ -17,7 +20,9 @@ from unittest.mock import Mock, seal, patch
 from .http import MediaWikiClient, WikiCache
 from .utils import rich_repr
 
-__all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock', 'RedirectStreams']
+__all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock', 'RedirectStreams', 'mocked_client', 'get_siteinfo']
+
+TEST_DATA_DIR = Path(__file__).resolve().parents[2].joinpath('tests', 'data')
 
 
 class WikiNodesTest(TestCase):
@@ -37,6 +42,9 @@ class WikiNodesTest(TestCase):
         cls._mwc_request_patch.stop()  # noqa
         cls._wiki_cache_reset_patch.stop()  # noqa
         cls._wiki_cache_init_patch.stop()  # noqa
+
+    def tearDown(self):
+        MediaWikiClient._instances.clear()
 
     def assert_dict_equal(self, d1, d2, msg: str = None):
         self.assertIsInstance(d1, dict, 'First argument is not a dictionary')
@@ -160,3 +168,21 @@ class RedirectStreams(AbstractContextManager):
         while self._old:
             name, orig = self._old.popitem()
             setattr(sys, name, orig)
+
+
+@lru_cache(5)
+def get_siteinfo(site: str):
+    with TEST_DATA_DIR.joinpath('siteinfo').joinpath(f'{site}.json').open('r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def mocked_client(site: str):
+    client = MediaWikiClient(site)
+    try:
+        siteinfo = get_siteinfo(site)
+    except FileNotFoundError:
+        pass
+    else:
+        client.__dict__['siteinfo'] = siteinfo
+
+    return client

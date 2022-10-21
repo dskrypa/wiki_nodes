@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from wiki_nodes import MediaWikiClient, Link, Template
 from wiki_nodes.testing import WikiNodesTest
 
-KPOP_FANDOM_IW_MAP = {'w': 'https://community.fandom.com/wiki/$1', 'wikipedia': 'http://en.wikipedia.org/wiki/$1'}
+KPOP_FANDOM_IW_MAP = {'w': 'https://community.fandom.com/wiki/$1', 'wikipedia': 'https://en.wikipedia.org/wiki/$1'}
 
 
 class LinkHandlingTestCase(WikiNodesTest):
@@ -30,7 +30,7 @@ class LinkHandlingTestCase(WikiNodesTest):
         self.assertIsInstance(link, Link)
         self.assertTrue(link.interwiki)
         self.assert_equal(link.iw_key_title, ('wikipedia', 'en:Some Title'))
-        self.assert_equal(link.url, 'http://en.wikipedia.org/wiki/en:Some_Title')
+        self.assert_equal(link.url, 'https://en.wikipedia.org/wiki/en:Some_Title')
         self.assertNotIn('siteinfo', MediaWikiClient('http://en.wikipedia.org').__dict__)  # patch sanity check
 
     @patch('wiki_nodes.http.MediaWikiClient.interwiki_map', KPOP_FANDOM_IW_MAP)
@@ -42,7 +42,7 @@ class LinkHandlingTestCase(WikiNodesTest):
         self.assertTrue(link.interwiki)
         self.assert_equal(link.iw_key_title, ('wikipedia', 'ko:Some Title'))
         self.assert_equal(link.show, 'Some Title in Korean')
-        self.assert_equal(link.url, 'http://en.wikipedia.org/wiki/ko:Some_Title')
+        self.assert_equal(link.url, 'https://en.wikipedia.org/wiki/ko:Some_Title')
         self.assertNotIn('siteinfo', MediaWikiClient('http://en.wikipedia.org').__dict__)  # patch sanity check
 
 

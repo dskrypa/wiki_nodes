@@ -4,7 +4,7 @@ import sys
 from unittest import main, TestCase
 
 from wiki_nodes.nodes import List, ListEntry
-from wiki_nodes.testing import WikiNodesTest, sealed_mock, RedirectStreams
+from wiki_nodes.testing import WikiNodesTest, sealed_mock, RedirectStreams, mocked_client
 
 
 class TestHelperTest(TestCase):
@@ -61,6 +61,9 @@ class TestHelperTest(TestCase):
             self.assertRegex(str(e), r'Lists differ:.*?\] != \[.*')
         else:
             self.fail('No AssertionError was raised')
+
+    def test_missing_siteinfo(self):
+        self.assertNotIn('siteinfo', mocked_client('fake.test123').__dict__)
 
 
 if __name__ == '__main__':

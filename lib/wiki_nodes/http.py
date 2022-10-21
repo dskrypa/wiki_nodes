@@ -253,6 +253,26 @@ class MediaWikiClient(RequestsClient):
                 # params[key] = ''.join(map('\u001f{}'.format, val))    # doesn't work for vals without |
         return params
 
+    def _prepare_query_params(self, params):
+        params['action'] = 'query'
+        params['redirects'] = 1
+        properties = params.get('prop', [])
+        properties = {properties} if isinstance(properties, str) else set(properties)
+        if 'iwlinks' in properties:                 # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Iwlinks
+            if self.mw_version >= LooseVersion('1.24'):
+                params['iwprop'] = 'url'
+            else:
+                params['iwurl'] = 1
+        if 'categories' in properties:              # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Categories
+            params['cllimit'] = 500  # default: 10
+        if 'revisions' in properties:               # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Revisions
+            if self.mw_version >= LooseVersion('1.32'):
+                params['rvslots'] = 'main'
+        if params.get('list') == 'allcategories':
+            params.setdefault('aclimit', 500)
+
+        return params
+
     def query(self, **params) -> TitleDataMap:
         """
         Submit, then parse and transform a `query request <https://www.mediawiki.org/wiki/API:Query>`_
@@ -265,23 +285,7 @@ class MediaWikiClient(RequestsClient):
         :param params: Query API parameters
         :return: Mapping of {title: dict(results)}
         """
-        params['action'] = 'query'
-        params['redirects'] = 1
-        properties = params.get('prop', [])
-        properties = {properties} if isinstance(properties, str) else set(properties)
-        if 'iwlinks' in properties:                     # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Iwlinks
-            if self.mw_version >= LooseVersion('1.24'):
-                params['iwprop'] = 'url'
-            else:
-                params['iwurl'] = 1
-        if 'categories' in properties:              # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Categories
-            params['cllimit'] = 500     # default: 10
-        if 'revisions' in properties:               # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Revisions
-            if self.mw_version >= LooseVersion('1.32'):
-                params['rvslots'] = 'main'
-        if params.get('list') == 'allcategories':
-            params.setdefault('aclimit', 500)
-
+        params = self._prepare_query_params(params)
         titles = params.pop('titles', None)  # type: Union[str, Collection[str]]
         if titles:
             if isinstance(titles, str) or len(titles) <= 50:

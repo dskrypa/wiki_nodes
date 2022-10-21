@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import logging
 from textwrap import dedent
 from unittest import main
 from unittest.mock import patch, Mock
@@ -9,8 +8,6 @@ from wiki_nodes import as_node, Root, Link, List, String, Template, CompoundNode
 from wiki_nodes.exceptions import NoLinkTarget
 from wiki_nodes.nodes import ListEntry, TableSeparator, Table
 from wiki_nodes.testing import WikiNodesTest, RedirectStreams
-
-log = logging.getLogger(__name__)
 
 
 class NodeParsingTest(WikiNodesTest):
