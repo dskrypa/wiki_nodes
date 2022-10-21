@@ -144,6 +144,21 @@ class Node(ClearableCachedPropertyMixin):
 
     # endregion
 
+    def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
+        cls_matches = isinstance(self, node_cls)
+        if cls_matches and (not kwargs or all(getattr(self, k, _NotSet) == v for k, v in kwargs.items())):
+            yield self
+
+    def find_one(self, node_cls: Type[N], *args, **kwargs) -> Optional[N]:
+        """
+        :param node_cls: The class of :class:`Node` to find
+        :param args: Positional args to pass to :meth:`.find_all`
+        :param kwargs: Keyword args to pass to :meth:`.find_all`
+        :return: The first :class:`Node` object that matches the given criteria, or None if no matching nodes could be
+          found.
+        """
+        return next(self.find_all(node_cls, *args, **kwargs), None)
+
 
 class BasicNode(Node):
     __slots__ = ()
@@ -159,18 +174,13 @@ class BasicNode(Node):
         return True
 
 
-class ContainerNode(ABC):
+class ContainerNode(Node, ABC):
     __slots__ = ()
 
+    @property
     @abstractmethod
-    def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
+    def children(self):
         raise NotImplementedError
-
-
-class CompoundNode(Node, ContainerNode):
-    @cached_property
-    def children(self) -> list[N]:
-        return []
 
     # region Dunder Methods
 
@@ -187,7 +197,7 @@ class CompoundNode(Node, ContainerNode):
         del self.children[key]
 
     def __iter__(self) -> Iterator[N]:
-        return iter(self.children)
+        yield from self.children
 
     def __len__(self) -> int:
         return len(self.children)
@@ -202,6 +212,12 @@ class CompoundNode(Node, ContainerNode):
 
     # endregion
 
+
+class CompoundNode(ContainerNode):
+    @cached_property
+    def children(self) -> list[N]:
+        return []
+
     @property
     def is_basic(self) -> bool:
         return False
@@ -213,26 +229,16 @@ class CompoundNode(Node, ContainerNode):
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         """
-        Find all descendent nodes of the given type, optionally with additional matching criteria.
+        Find all descendant nodes of the given type, optionally with additional matching criteria.
 
         :param node_cls: The class of :class:`Node` to find
-        :param recurse: Whether descendent nodes should be searched recursively or just the direct children of this node
+        :param recurse: Whether descendant nodes should be searched recursively or just the direct children of this node
         :param kwargs: If specified, keys should be names of attributes of the discovered nodes, for which the value of
           the node's attribute must equal the provided value
         :return: Generator that yields :class:`Node` objects of the given type
         """
         for value in self:
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
-
-    def find_one(self, node_cls: Type[N], *args, **kwargs) -> Optional[N]:
-        """
-        :param type node_cls: The class of :class:`Node` to find
-        :param args: Positional args to pass to :meth:`.find_all`
-        :param kwargs: Keyword args to pass to :meth:`.find_all`
-        :return: The first :class:`Node` object that matches the given criteria, or None if no matching nodes could be
-          found.
-        """
-        return next(self.find_all(node_cls, *args, **kwargs), None)
 
     def pformat(self, indentation: int = 0) -> str:
         indent = ' ' * indentation
@@ -275,10 +281,10 @@ class MappingNode(CompoundNode, MutableMapping):
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         """
-        Find all descendent nodes of the given type, optionally with additional matching criteria.
+        Find all descendant nodes of the given type, optionally with additional matching criteria.
 
         :param type node_cls: The class of :class:`Node` to find
-        :param bool recurse: Whether descendent nodes should be searched recursively or just the direct children of this
+        :param bool recurse: Whether descendant nodes should be searched recursively or just the direct children of this
           node
         :param kwargs: If specified, keys should be names of attributes of the discovered nodes, for which the value of
           the node's attribute must equal the provided value
@@ -288,7 +294,7 @@ class MappingNode(CompoundNode, MutableMapping):
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
 
-class Tag(BasicNode, ContainerNode, method='get_tags'):
+class Tag(BasicNode, method='get_tags'):
     raw: _Tag
     name: str
     attrs: dict[str, str]
@@ -796,7 +802,7 @@ class TableSeparator:
         return f'{indent}<{self.__class__.__name__}[{self.value!r}]>'
 
 
-class Template(BasicNode, ContainerNode, attr='templates'):
+class Template(BasicNode, attr='templates'):
     raw: _Template
     name: str
     lc_name: str
@@ -923,11 +929,11 @@ class Root(Node):
         return root
 
 
-class Section(Node, ContainerNode, method='get_sections'):
+class Section(ContainerNode, method='get_sections'):
     raw: _Section
     title: str
     level: int
-    children: dict[str, Section]
+    children: dict[str, Section] = None  # = None is necessary to satisfy the abstract property
 
     def __init__(
         self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = 0
