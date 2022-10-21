@@ -6,9 +6,11 @@ from textwrap import dedent
 from unittest import main
 from unittest.mock import patch, Mock
 
+from wikitextparser import WikiText
+
 from wiki_nodes import as_node, Root, Link, List, String, Template, CompoundNode, Tag, Node, BasicNode, MappingNode
 from wiki_nodes.exceptions import NoLinkTarget
-from wiki_nodes.nodes import ListEntry, TableSeparator, Table
+from wiki_nodes.nodes import ListEntry, TableSeparator, Table, Section
 from wiki_nodes.page import WikiPage
 from wiki_nodes.testing import WikiNodesTest, RedirectStreams, mocked_client
 
@@ -75,12 +77,69 @@ class NodeParsingTest(WikiNodesTest):
     def test_stripped_style(self):
         self.assertEqual('test', String("'''test'''").stripped())
 
+    # region repr & pprint
+
     def test_node_repr(self):
         self.assertEqual('<Node()>', repr(Node('test')))
         self.assertEqual("<BasicNode(WikiText('test'))>", repr(BasicNode('test')))
         self.assertEqual('<CompoundNode[]>', repr(CompoundNode('test')))
         self.assertEqual('<Tag[br][None]>', repr(Tag('<br/>')))
         self.assertEqual("<ListEntry(<String('test')>)>", repr(ListEntry('test')))
+        self.assertEqual("<Template('n/a': None)>", repr(Template('{{n/a}}')))
+        self.assertEqual("<Section[2: foo]>", repr(Section('==foo==', None)))
+
+    def test_raw_pprint(self):
+        with RedirectStreams() as streams:
+            Link('[[test]]').pprint('raw')
+
+        self.assert_strings_equal('[[test]]\n', streams.stdout)
+
+    def test_pprint(self):
+        with RedirectStreams() as streams:
+            Link('[[test]]').pprint(recurse=True)
+
+        self.assert_strings_equal("<Link:'[[test]]'>\n", streams.stdout)
+
+    def test_pprint_nothing(self):
+        with RedirectStreams() as streams:
+            Link('[[test]]').pprint('headers')
+            Link('[[test]]').pprint('test123')
+
+        self.assertEqual('', streams.stdout)
+
+    def test_pprint_recurse(self):
+        with RedirectStreams() as streams:
+            as_node("'''foo''' [[bar]]").pprint(recurse=True)
+
+        expected = (
+            """<CompoundNode[\n    <String("'''foo'''")>,\n    <Link:'[[bar]]'>\n]>\n"""
+            """    <String("'''foo'''")>\n    <Link:'[[bar]]'>\n"""
+        )
+        self.assertEqual(expected, streams.stdout)
+
+    def test_pformat_template(self):
+        self.assertEqual("<Template['n/a'][None]>", Template('{{n/a}}').pformat())
+
+    def test_compound_rich_repr(self):
+        node = as_node("'''foo''' [[bar]]")
+        self.assertEqual(node.children, list(node.__rich_repr__()))
+
+    def test_mapping_rich_repr(self):
+        node = MappingNode('', content={'a': '1', 'b': '2'})
+        self.assertEqual(node.children, dict(node.__rich_repr__()))
+
+    def test_tag_rich_repr(self):
+        self.assertEqual(['br', ('attrs', {})], list(Tag('<br/>').__rich_repr__()))
+
+    def test_table_rich_repr(self):
+        table = Table('{|\n! a !! b !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
+        expected = [('caption', None, None), ('headers', ['a', 'b', 'c']), ('children', table.children)]
+        self.assertEqual(expected, list(table.__rich_repr__()))
+
+    def test_template_rich_repr(self):
+        self.assertEqual(['n/a', None], list(Template('{{n/a}}').__rich_repr__()))
+
+    # endregion
 
     def test_node_bool(self):
         self.assertTrue(Node('test'))
@@ -95,18 +154,6 @@ class NodeParsingTest(WikiNodesTest):
         self.assertIs(None, Node('test').is_basic)
         self.assertTrue(BasicNode('test').is_basic)
         self.assertFalse(CompoundNode('test').is_basic)
-
-    def test_raw_pprint(self):
-        with RedirectStreams() as streams:
-            Link('[[test]]').raw_pprint()
-
-        self.assert_strings_equal('[[test]]\n', streams.stdout)
-
-    def test_pprint(self):
-        with RedirectStreams() as streams:
-            Link('[[test]]').pprint()
-
-        self.assert_strings_equal("<Link:'[[test]]'>\n", streams.stdout)
 
     def test_basic_node_set(self):
         self.assertSetEqual({BasicNode('test')}, {BasicNode('test'), BasicNode('test')})
@@ -140,6 +187,9 @@ class NodeParsingTest(WikiNodesTest):
     # endregion
 
     # region MappingNode
+
+    def test_mapping_only_basic(self):
+        self.assertFalse(MappingNode('', content={'a': '1', 'b': '2'}).only_basic)
 
     def test_mapping_keys(self):
         self.assertSetEqual({'a', 'b'}, set(MappingNode('', content={'a': '1', 'b': '2'}).keys()))
@@ -400,6 +450,50 @@ class NodeParsingTest(WikiNodesTest):
         table = page.get('Release History').find_one(Table)
         self.assertListEqual(['Region', 'Date', 'Label', 'Distributor', 'Format(s)'], table.headers)
         self.assertEqual(4, len(table.children))
+
+    def test_table_no_rows(self):
+        self.assertEqual([], Table('{|\n! a !! b !! c\n|}').rows)
+
+    # endregion
+
+    # region Template
+
+    def test_tmpl_get_error(self):
+        with self.assertRaisesRegex(TypeError, 'Cannot index a template with no value'):
+            _ = Template('{{n/a}}')[0]
+
+    def test_tmpl_find_all_none(self):
+        self.assertIs(None, Template('{{n/a}}').find_one(Link))
+
+    def test_tmpl_find_all_non_node_value(self):
+        tmpl = Template('{{about}}', root=Mock(title='foo', site='bar'))
+        self.assertEqual('foo_(disambiguation)', tmpl.find_one(Link).title)
+        self.assertIs(None, tmpl.find_one(Table))
+
+    # endregion
+
+    # region Root
+
+    def test_root_from_wiki_text(self):
+        self.assertIn('foo', Root(WikiText('==foo==')))
+
+    def test_root_getitem(self):
+        self.assertIsInstance(Root('==foo==')['foo'], Section)
+
+    def test_root_iter(self):
+        self.assertEqual(['', 'foo'], [s.title for s in Root('==foo==\n===bar===\n')])
+
+    # endregion
+
+    # region Section
+
+    def test_section_processed_all_disabled(self):
+        section = Section("==foo==\n'''foo''' [[bar]]", Mock(site='foo', title='bar'))
+        content = section.content
+        self.assertEqual(content, section.processed(False, False, False, False, False))
+
+    def test_section_processed_nothing(self):
+        self.assertIs(None, Section("==foo==\n", Mock(site='foo', title='bar')).processed())
 
     # endregion
 

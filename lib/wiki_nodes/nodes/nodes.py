@@ -944,6 +944,9 @@ class Root(Node):
     def __getitem__(self, title_or_index: Union[str, int]) -> Section:
         return self.sections[title_or_index]
 
+    def __contains__(self, title_or_index: Union[str, int]) -> bool:
+        return title_or_index in self.sections
+
     def __iter__(self) -> Iterator[Section]:
         root = self.sections
         yield root
@@ -993,7 +996,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
     _subsections: list[Section]
 
     def __init__(
-        self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = 0
+        self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = None
     ):
         super().__init__(raw, root, preserve_comments, _index)
         self.title = strip_style(self.raw.title) if self.raw.title else ''
@@ -1002,6 +1005,14 @@ class Section(ContainerNode['Section'], method='get_sections'):
         self._subsections = []
 
     # region Internal Methods
+
+    @classmethod
+    def normalize_raw(cls, raw: Union[Raw, _Section], index: int = None) -> _Section:
+        if isinstance(raw, str) and index is None:
+            index = 1
+        else:
+            index = 0
+        return super().normalize_raw(raw, index)  # noqa
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
