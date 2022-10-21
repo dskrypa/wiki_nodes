@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from functools import lru_cache
+from pathlib import Path
 from textwrap import dedent
 from unittest import main
 from unittest.mock import patch, Mock
@@ -7,7 +9,20 @@ from unittest.mock import patch, Mock
 from wiki_nodes import as_node, Root, Link, List, String, Template, CompoundNode, Tag, Node, BasicNode, MappingNode
 from wiki_nodes.exceptions import NoLinkTarget
 from wiki_nodes.nodes import ListEntry, TableSeparator, Table
-from wiki_nodes.testing import WikiNodesTest, RedirectStreams
+from wiki_nodes.page import WikiPage
+from wiki_nodes.testing import WikiNodesTest, RedirectStreams, mocked_client
+
+SITE = 'en.wikipedia.org'
+DATA_DIR = Path(__file__).resolve().parent.joinpath('data', 'test_nodes')
+
+
+@lru_cache(5)
+def load_data(name: str) -> str:
+    return DATA_DIR.joinpath(name).read_text('utf-8')
+
+
+def get_page(name: str, title: str, site: str = SITE) -> WikiPage:
+    return WikiPage(title, SITE, load_data(name), client=mocked_client(site))
 
 
 class NodeParsingTest(WikiNodesTest):
@@ -374,6 +389,17 @@ class NodeParsingTest(WikiNodesTest):
         self.assert_equal(['a', 'b', 'c'], table.headers)
         expected = [{'a': '1', 'b': '2', 'c': '3'}, {'a': '4', 'b': '5', 'c': '6'}]
         self.assert_equal(expected, [row.children for row in table.children])
+
+    def test_multi_line_keys(self):
+        page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
+        table = page.get('Charts').find_one(Table)
+        self.assertListEqual(['Chart (2021)', 'Peak position'], table.headers)
+
+    def test_release_history(self):
+        page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
+        table = page.get('Release History').find_one(Table)
+        self.assertListEqual(['Region', 'Date', 'Label', 'Distributor', 'Format(s)'], table.headers)
+        self.assertEqual(4, len(table.children))
 
     # endregion
 

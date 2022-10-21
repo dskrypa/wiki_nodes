@@ -1,0 +1,39 @@
+==Charts==
+{| class="wikitable sortable plainrowheaders" style="text-align:center"
+|+ Chart performance for ''No Gods No Masters''
+! scope="col"| Chart (2021)
+! scope="col"| Peak<br />position
+|-
+{{album chart|Australia|5|artist=Garbage|album=No Gods No Masters|rowheader=true|access-date=June 18, 2021}}
+|-
+{{album chart|Austria|13|artist=Garbage|album=No Gods No Masters|rowheader=true|access-date=June 22, 2021}}
+|-
+{{album chart|Flanders|134|artist=Garbage|album=No Gods No Masters|rowheader=true|access-date=June 20, 2021}}
+|-
+{{album chart|Wallonia|10|artist=Garbage|album=No Gods No Masters|rowheader=true|access-date=June 20, 2021}}
+|-
+{{album chart|Netherlands|79|artist=Garbage|album=No Gods No Masters|rowheader=true|access-date=June 18, 2021}}
+|}
+
+==Release history==
+{| class="wikitable plainrowheaders"
+|+ Release dates and formats for ''No Gods No Masters''
+! scope="col"| Region
+! scope="col"| Date
+! scope="col"| Label
+! scope="col"| Distributor
+! scope="col"| Format(s)
+|-
+! scope="row"| Australia and New Zealand
+| rowspan="2"| June 11, 2021
+| rowspan="3"| Stunvolume
+| Liberator Music<ref name="AUS">{{cite web|url=https://gclive.me/2021/03/31/garbage-announce-new-album-no-gods-no-masters/|title=GARBAGE Announce New Album 'No Gods No Masters'|website=Good Call Live|date=March 31, 2021|access-date=April 3, 2021}}</ref>
+| rowspan="2"| {{hlist| Standard: [[Compact disc|CD]]|[[LP record|LP]] (white/green)<br />Deluxe: 2×CD, [[music download|digital album]]}}
+|-
+! scope="row"| Various
+| rowspan="2"| {{hlist|[[Infectious Music]]|[[BMG Rights Management|BMG]]}}
+|-
+! scope="row"| United States and United Kingdom
+| June 10, 2021
+| rowspan="2"| {{hlist| Standard: LP (pink) ([[Record Store Day]] release)<ref name="spin"/>}}
+|}

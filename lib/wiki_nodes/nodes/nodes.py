@@ -34,6 +34,7 @@ __all__ = [
 ]
 log = logging.getLogger(__name__)
 
+T = TypeVar('T')
 N = TypeVar('N', bound='Node')
 C = TypeVar('C', bound='Node')
 KT = TypeVar('KT')
@@ -247,6 +248,9 @@ class CompoundNode(ContainerNode[C]):
         children = ',\n'.join(child_lines)
         return f'{indent}<{self.__class__.__name__}[\n{children}\n{indent}]>'
 
+    def __rich_repr__(self):
+        yield from self.children
+
     @classmethod
     def from_nodes(
         cls, nodes: Iterable[N], root: Root = None, preserve_comments: bool = False, delim: str = '\n'
@@ -282,6 +286,9 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
         )
         children = ',\n'.join(child_lines)
         return f'{indent}<{self.__class__.__name__}{{\n{children}\n{indent}}}>'
+
+    def __rich_repr__(self):
+        yield from self.children.items()
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         """
@@ -337,6 +344,10 @@ class Tag(BasicNode, method='get_tags'):
 
     def get(self, item, default=None):
         return self.attrs.get(item, default)
+
+    def __rich_repr__(self):
+        yield self.name
+        yield 'attrs', self.attrs
 
 
 class String(BasicNode):
@@ -620,6 +631,10 @@ class ListEntry(CompoundNode[C]):
                 content = base
             return f'{indent}<{self.__class__.__name__}(\n{content}\n{indent})>'
 
+    def __rich_repr__(self):
+        yield self.value
+        yield 'children', self.children
+
 
 class List(CompoundNode[ListEntry[C]], method='get_lists'):
     raw: _List
@@ -738,14 +753,13 @@ class TableSeparator:
 
 class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='tables'):
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
+    _header_ws_pat = re.compile(r'\s*<br\s*/?>\s*')
     raw: _Table
     caption: Optional[str]
 
     def __init__(self, raw: Union[Raw, _Table], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
         self.caption = self.raw.caption.strip() if self.raw.caption else None
-        self._header_rows = None
-        self._raw_headers = None
 
     @classmethod
     def normalize_raw(cls, raw: Union[Raw, _Table], index: int = 0) -> _Table:
@@ -753,20 +767,25 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         return super().normalize_raw(raw, index)  # noqa
 
     @cached_property
-    def headers(self) -> list[str]:
-        rows = self.raw.cells()
-        row_spans = [int(cell.attrs.get('rowspan', 1)) if cell is not None else 1 for cell in next(iter(rows))]
-        self._header_rows = max(row_spans)
-        self._raw_headers = []
-        str_headers = []
+    def _header_row_spans(self):
+        return [int(cell.attrs.get('rowspan', 1)) if cell is not None else 1 for cell in next(iter(self.raw.cells()))]
 
-        for i, row in enumerate(rows):
-            if i == self._header_rows:
-                break
-            row_data = [
-                as_node(cell.value.strip(), self.root, self.preserve_comments) if cell else cell for cell in row
+    @cached_property
+    def _raw_headers(self):
+        last_header_row = max(self._header_row_spans)
+        sub_ws = self._header_ws_pat.sub
+        return [
+            [
+                as_node(sub_ws(' ', cell.value).strip(), self.root, self.preserve_comments) if cell else cell
+                for cell in row
             ]
-            self._raw_headers.append(row_data)
+            for row in self.raw.cells()[:last_header_row]
+        ]
+
+    @cached_property
+    def _str_headers(self):
+        str_headers = []
+        for row_data in self._raw_headers:
             cell_strs = []
             for cell in row_data:
                 while isinstance(cell, CompoundNode):
@@ -780,30 +799,54 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
                 elif cell is not None:
                     log.debug(f'Unexpected cell type; using data instead: {cell}')
             str_headers.append(cell_strs)
+        return str_headers
 
+    @cached_property
+    def headers(self) -> list[str]:
         headers = []
-        for row_span, *header_vals in zip(row_spans, *str_headers):
+        for row_span, *header_vals in zip(self._header_row_spans, *self._str_headers):
             header_vals = header_vals[:-(row_span - 1)] if row_span > 1 else header_vals
             headers.append(':'.join(map(strip_style, filter(None, header_vals))))
         return headers
 
     @cached_property
-    def children(self) -> list[Union[TableSeparator, MappingNode[C]]]:
+    def rows(self) -> list[Union[TableSeparator, MappingNode[C]]]:
         def node_fn(cell):
             if not cell:
                 return cell
             return as_node(cell.value.strip(), self.root, self.preserve_comments)
 
         headers = self.headers
+        num_header_rows = len(self._raw_headers)
         processed = []
-        for row in self.raw.cells()[self._header_rows:]:
-            # TODO: AttributeError on row[0].attrs on No_Gods_No_Masters_(Garbage_album)
-            if int(row[0].attrs.get('colspan', 1)) >= len(headers):  # Some tables have an incorrect value...
-                processed.append(TableSeparator(node_fn(row[0])))
-            else:
+        if raw_rows := self.raw.cells()[num_header_rows:]:
+            for row in raw_rows:
+                try:
+                    col_span = int(row[0].attrs.get('colspan', 1))
+                except AttributeError:
+                    pass
+                else:
+                    if col_span >= len(headers):  # Some tables have an incorrect value...
+                        processed.append(TableSeparator(node_fn(row[0])))
+                        continue
+
                 mapping = zip(headers, map(node_fn, row))
                 processed.append(MappingNode(row, self.root, self.preserve_comments, mapping))
+        elif templates := self.raw.templates:
+            for template in templates:
+                cells = [node_fn(arg) for arg in template.arguments if arg.positional]
+                processed.append(MappingNode(template, self.root, self.preserve_comments, zip(headers, cells)))
+
         return processed
+
+    @cached_property
+    def children(self) -> list[Union[TableSeparator, MappingNode[C]]]:
+        return self.rows
+
+    def __rich_repr__(self):
+        yield 'caption', self.caption, None
+        yield 'headers', self.headers
+        yield 'children', self.children
 
 
 class Template(BasicNode, attr='templates'):
@@ -843,6 +886,10 @@ class Template(BasicNode, attr='templates'):
                 return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value}]>'
 
         return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value!r}]>'
+
+    def __rich_repr__(self):
+        yield self.name
+        yield self.value
 
     @cached_property
     def handler(self) -> TemplateHandler:
@@ -894,13 +941,18 @@ class Root(Node):
         self.site = site
         self._interwiki_map = interwiki_map
 
-    def __getitem__(self, item: str) -> Section:
-        return self.sections[item]
+    def __getitem__(self, title_or_index: Union[str, int]) -> Section:
+        return self.sections[title_or_index]
 
     def __iter__(self) -> Iterator[Section]:
         root = self.sections
         yield root
         yield from root
+
+    def get(
+        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = False
+    ) -> Union[Section, T]:
+        return self.sections.get(title_or_index, default, case_sensitive=case_sensitive)
 
     def find_all(self, node_cls: Type[N], recurse: bool = True, **kwargs) -> Iterator[N]:
         """
@@ -928,7 +980,7 @@ class Root(Node):
 
             parent = last_by_level[max(last_by_level)]
             section = Section(sec, self, self.preserve_comments)
-            parent.children[section.title] = section
+            parent._add_sub_section(section.title, section)
             last_by_level[level] = section
         return root
 
@@ -938,6 +990,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
     title: str
     level: int
     children: dict[str, Section] = None  # = None is necessary to satisfy the abstract property
+    _subsections: list[Section]
 
     def __init__(
         self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = 0
@@ -946,17 +999,30 @@ class Section(ContainerNode['Section'], method='get_sections'):
         self.title = strip_style(self.raw.title) if self.raw.title else ''
         self.level = self.raw.level
         self.children = {}  # populated by Root.sections
+        self._subsections = []
 
     # region Internal Methods
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
-    def __getitem__(self, title: str) -> Section:
-        return self.children[title]
+    def __getitem__(self, title_or_index: Union[str, int]) -> Section:
+        try:
+            return self.children[title_or_index]
+        except KeyError:
+            pass
+        try:
+            return self._subsections[title_or_index]
+        except (TypeError, IndexError):
+            pass
+        raise KeyError(title_or_index)
 
-    def __contains__(self, title: str) -> bool:
-        return title in self.children
+    def __contains__(self, title_or_index: Union[str, int]) -> bool:
+        if title_or_index in self.children:
+            return True
+        if isinstance(title_or_index, int):
+            return 0 <= title_or_index < len(self._subsections)
+        return False
 
     def __iter__(self) -> Iterator[Section]:
         yield from self.children.values()
@@ -966,10 +1032,14 @@ class Section(ContainerNode['Section'], method='get_sections'):
         title = self.raw.title if raw else self.title
         return f'{bars}{title}{bars}'
 
-    def _add_subsection(self, title: str, nodes: Iterable[Node], delim: str = ' '):
+    def _add_sub_section(self, title: str, section: Section):
+        self.children[title] = section
+        self._subsections.append(section)
+
+    def _add_pseudo_sub_section(self, title: str, nodes: Iterable[Node], delim: str = ' '):
         bars = '=' * (self.level + 1)
         raw = f'{bars}{title}{bars}\n{delim.join(n.raw.string for n in nodes)}'
-        self.children[title] = self.__class__(raw, self.root, self.preserve_comments, 1)
+        self._add_sub_section(title, self.__class__(raw, self.root, self.preserve_comments, 1))
 
     # endregion
 
@@ -979,19 +1049,37 @@ class Section(ContainerNode['Section'], method='get_sections'):
             return max(section.depth for section in self.children.values()) + 1
         return 0
 
-    def find(self, title: str, default: None = _NotSet) -> Optional[Section]:
+    def get(
+        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = False
+    ) -> Union[Section, T]:
+        return self._find(title_or_index, default, case_sensitive=case_sensitive)
+
+    def find(self, title_or_index: Union[str, int], default: T = _NotSet) -> Union[Section, T]:
         """Find the subsection with the given title"""
+        return self._find(title_or_index, default, case_sensitive=True)
+
+    def _find(
+        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = False
+    ) -> Union[Section, T]:
         try:
-            return self.children[title]
+            return self.children[title_or_index]
         except KeyError:
             pass
+
+        if not case_sensitive and not isinstance(title_or_index, int):
+            title = title_or_index.casefold()
+            for name, child in self.children.items():
+                if title == name.casefold():
+                    return child
+
         for child in self.children.values():
             try:
-                return child.find(title)
+                return child._find(title_or_index, case_sensitive=case_sensitive)
             except KeyError:
                 pass
+
         if default is _NotSet:
-            raise KeyError(f'Cannot find section={title!r} in {self} or any subsections')
+            raise KeyError(f'Cannot find section={title_or_index!r} in {self} or any subsections')
         return default
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
@@ -1225,7 +1313,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
             if new_title:
                 if title:
                     did_fix = True
-                    self._add_subsection(title, subsection_nodes)
+                    self._add_pseudo_sub_section(title, subsection_nodes)
                     subsection_nodes = []
 
                 title = new_title
@@ -1236,7 +1324,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
 
         if title:
             did_fix = True
-            self._add_subsection(title, subsection_nodes)
+            self._add_pseudo_sub_section(title, subsection_nodes)
 
         if did_fix:
             content.children.clear()
