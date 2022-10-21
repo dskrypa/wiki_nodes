@@ -14,7 +14,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from copy import copy
-from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match
+from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match, Generic
 
 from wikitextparser import (
     WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
@@ -35,6 +35,8 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 N = TypeVar('N', bound='Node')
+C = TypeVar('C', bound='Node')
+KT = TypeVar('KT')
 OptStr = Optional[str]
 Raw = Union[str, WikiText]
 AnyNode = Union[
@@ -145,9 +147,7 @@ class Node(ClearableCachedPropertyMixin):
     # endregion
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
-        cls_matches = isinstance(self, node_cls)
-        if cls_matches and (not kwargs or all(getattr(self, k, _NotSet) == v for k, v in kwargs.items())):
-            yield self
+        yield from ()
 
     def find_one(self, node_cls: Type[N], *args, **kwargs) -> Optional[N]:
         """
@@ -174,7 +174,7 @@ class BasicNode(Node):
         return True
 
 
-class ContainerNode(Node, ABC):
+class ContainerNode(Node, Generic[C], ABC):
     __slots__ = ()
 
     @property
@@ -182,21 +182,25 @@ class ContainerNode(Node, ABC):
     def children(self):
         raise NotImplementedError
 
+    @property
+    def is_basic(self) -> bool:
+        return False
+
     # region Dunder Methods
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}{self.children!r}>'
 
-    def __getitem__(self, item) -> N:
+    def __getitem__(self, item) -> C:
         return self.children[item]
 
-    def __setitem__(self, key, value: N):
+    def __setitem__(self, key, value: C):
         self.children[key] = value
 
     def __delitem__(self, key):
         del self.children[key]
 
-    def __iter__(self) -> Iterator[N]:
+    def __iter__(self) -> Iterator[C]:
         yield from self.children
 
     def __len__(self) -> int:
@@ -212,21 +216,6 @@ class ContainerNode(Node, ABC):
 
     # endregion
 
-
-class CompoundNode(ContainerNode):
-    @cached_property
-    def children(self) -> list[N]:
-        return []
-
-    @property
-    def is_basic(self) -> bool:
-        return False
-
-    @property
-    def only_basic(self) -> bool:
-        """True if all children are basic; not cached because children may change"""
-        return type(self) is CompoundNode and all(c.is_basic for c in self.children)
-
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         """
         Find all descendant nodes of the given type, optionally with additional matching criteria.
@@ -240,6 +229,17 @@ class CompoundNode(ContainerNode):
         for value in self:
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
+
+class CompoundNode(ContainerNode[C]):
+    @cached_property
+    def children(self) -> list[C]:
+        return []
+
+    @property
+    def only_basic(self) -> bool:
+        """True if all children are basic; not cached because children may change"""
+        return self.__class__ is CompoundNode and all(c.is_basic for c in self.children)
+
     def pformat(self, indentation: int = 0) -> str:
         indent = ' ' * indentation
         inside = indent + (' ' * 4)
@@ -249,25 +249,29 @@ class CompoundNode(ContainerNode):
 
     @classmethod
     def from_nodes(
-        cls, nodes: Iterable[Node], root: Root = None, preserve_comments: bool = False, delim: str = '\n'
-    ) -> CompoundNode:
+        cls, nodes: Iterable[N], root: Root = None, preserve_comments: bool = False, delim: str = '\n'
+    ) -> CompoundNode[N]:
         node = cls(delim.join(n.raw.string for n in nodes), root, preserve_comments)
         node.children.extend(nodes)
         return node
 
 
-class MappingNode(CompoundNode, MutableMapping):
+class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
+    __slots__ = ('children',)
+    children: dict[Union[str, C], Optional[C]]
+
     def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, content=None):
         super().__init__(raw, root, preserve_comments)
+        self.children = {}
         if content:
             self.children.update(content)
 
-    @cached_property
-    def children(self) -> dict[Union[str, N], Optional[N]]:
-        return {}
-
     def keys(self):
         return self.children.keys()
+
+    @property
+    def only_basic(self) -> bool:
+        return False
 
     def pformat(self, indentation: int = 0):
         indent = ' ' * indentation
@@ -521,7 +525,7 @@ class Link(BasicNode):
     # endregion
 
 
-class ListEntry(CompoundNode):
+class ListEntry(CompoundNode[C]):
     def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, _value=None):
         super().__init__(raw, root, preserve_comments)
         if _value:
@@ -558,20 +562,20 @@ class ListEntry(CompoundNode):
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
     @cached_property
-    def sub_list(self) -> Optional[List]:
+    def sub_list(self) -> Optional[List[C]]:
         if not self._children:
             return None
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
         return List(content, self.root, self.preserve_comments)
 
     @property
-    def children(self) -> list[ListEntry]:
+    def children(self) -> list[ListEntry[C]]:
         sub_list = self.sub_list
         if not sub_list:
             return []
         return sub_list.children
 
-    def extend(self, list_node: List):
+    def extend(self, list_node: List[C]):
         if self._children is None:
             self.__dict__['sub_list'] = list_node
         else:
@@ -617,7 +621,7 @@ class ListEntry(CompoundNode):
             return f'{indent}<{self.__class__.__name__}(\n{content}\n{indent})>'
 
 
-class List(CompoundNode, method='get_lists'):
+class List(CompoundNode[ListEntry[C]], method='get_lists'):
     raw: _List
 
     def __init__(self, raw: Union[Raw, _List], root: Root = None, preserve_comments: bool = False):
@@ -626,25 +630,25 @@ class List(CompoundNode, method='get_lists'):
         self.start_char = self.raw.string[0]
 
     @cached_property
-    def children(self) -> list[ListEntry]:
+    def children(self) -> list[ListEntry[C]]:
         return [ListEntry(val, self.root, self.preserve_comments) for val in map(str.strip, self.raw.fullitems)]
 
-    def extend(self, list_node: List):
+    def extend(self, list_node: List[C]):
         self.children.extend(list_node.children)
 
-    def iter_flat(self) -> Iterator[N]:
+    def iter_flat(self) -> Iterator[C]:
         for child in self.children:
             if val := child.value:
                 yield val
             if child.sub_list:
                 yield from child.sub_list.iter_flat()
 
-    def as_mapping(self, *args, **kwargs) -> MappingNode:
+    def as_mapping(self, *args, **kwargs) -> MappingNode[C]:
         if self._as_mapping is None:
             self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
         return self._as_mapping
 
-    def as_dict(self, sep: str = ':', multiline=None) -> dict[Union[str, N], Optional[N]]:
+    def as_dict(self, sep: str = ':', multiline=None) -> dict[Union[str, C], Optional[C]]:
         data = {}
 
         def node_fn(node_str: str):
@@ -718,7 +722,21 @@ class List(CompoundNode, method='get_lists'):
             _add_kv(key, val)
 
 
-class Table(CompoundNode, attr='tables'):
+class TableSeparator:
+    __slots__ = ('value',)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}({self.value!r})>'
+
+    def pformat(self, indentation: int = 0) -> str:
+        indent = ' ' * indentation
+        return f'{indent}<{self.__class__.__name__}[{self.value!r}]>'
+
+
+class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='tables'):
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
     raw: _Table
     caption: Optional[str]
@@ -770,7 +788,7 @@ class Table(CompoundNode, attr='tables'):
         return headers
 
     @cached_property
-    def children(self) -> list[Union[TableSeparator, MappingNode]]:
+    def children(self) -> list[Union[TableSeparator, MappingNode[C]]]:
         def node_fn(cell):
             if not cell:
                 return cell
@@ -786,20 +804,6 @@ class Table(CompoundNode, attr='tables'):
                 mapping = zip(headers, map(node_fn, row))
                 processed.append(MappingNode(row, self.root, self.preserve_comments, mapping))
         return processed
-
-
-class TableSeparator:
-    __slots__ = ('value',)
-
-    def __init__(self, value):
-        self.value = value
-
-    def __repr__(self) -> str:
-        return f'<{self.__class__.__name__}({self.value!r})>'
-
-    def pformat(self, indentation: int = 0) -> str:
-        indent = ' ' * indentation
-        return f'{indent}<{self.__class__.__name__}[{self.value!r}]>'
 
 
 class Template(BasicNode, attr='templates'):
@@ -929,7 +933,7 @@ class Root(Node):
         return root
 
 
-class Section(ContainerNode, method='get_sections'):
+class Section(ContainerNode['Section'], method='get_sections'):
     raw: _Section
     title: str
     level: int
@@ -955,7 +959,7 @@ class Section(ContainerNode, method='get_sections'):
         return title in self.children
 
     def __iter__(self) -> Iterator[Section]:
-        return iter(self.children.values())
+        yield from self.children.values()
 
     def _formatted_title(self, raw: bool = False) -> str:
         bars = '=' * self.level
@@ -1004,7 +1008,7 @@ class Section(ContainerNode, method='get_sections'):
         if self.level == 0:
             raw = self.raw.string.strip()  # without .string here, .tags() returns the full page's tags
             node = as_node(raw, self.root, self.preserve_comments)
-            if type(node) is CompoundNode:
+            if node.__class__ is CompoundNode:
                 node = self._process_compound_root_content(node)
             # else:
             #     log.debug(f'Using original section 0 content for {self.root}')
@@ -1015,7 +1019,7 @@ class Section(ContainerNode, method='get_sections'):
             content = content.partition(next(iter(self))._formatted_title(True))[0].strip()
         return as_node(content, self.root, self.preserve_comments)    # chop off the header
 
-    def _process_compound_root_content(self, node: CompoundNode) -> CompoundNode:
+    def _process_compound_root_content(self, node: CompoundNode[N]) -> CompoundNode[N]:
         # Split infobox / templates from first paragraph
         non_basic = []
         remainder = []
@@ -1082,7 +1086,7 @@ class Section(ContainerNode, method='get_sections'):
 
         return content
 
-    def _process_convert_maps(self, content: CompoundNode) -> CompoundNode:  # noqa
+    def _process_convert_maps(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
         children = []
         did_convert = False
         last = len(content) - 1
@@ -1109,7 +1113,7 @@ class Section(ContainerNode, method='get_sections'):
 
         return content
 
-    def _process_fix_dl_last_none(self, content: CompoundNode) -> CompoundNode:  # noqa
+    def _process_fix_dl_last_none(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
         children = []
         did_fix = False
         last_map, last_key = None, None
@@ -1142,7 +1146,7 @@ class Section(ContainerNode, method='get_sections'):
 
         return content
 
-    def _process_fix_nested_dl_ul_ol(self, content: CompoundNode) -> CompoundNode:  # noqa
+    def _process_fix_nested_dl_ul_ol(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
         children = []
         did_fix = False
         last_list, last_entry = None, None
@@ -1181,7 +1185,7 @@ class Section(ContainerNode, method='get_sections'):
 
         return content
 
-    def _process_merge_maps(self, content: CompoundNode) -> CompoundNode:  # noqa
+    def _process_merge_maps(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
         children = []
         did_merge = False
         last_map = None
@@ -1204,7 +1208,7 @@ class Section(ContainerNode, method='get_sections'):
 
         return content
 
-    def _process_fix_dl_key_as_header(self, content: CompoundNode) -> CompoundNode:
+    def _process_fix_dl_key_as_header(self, content: CompoundNode[N]) -> CompoundNode[N]:
         children = []
         did_fix = False
         title = None  # type: Optional[str]
@@ -1293,9 +1297,9 @@ def _find_all(node, node_cls: Type[N], recurse: bool = True, _recurse_first: boo
     if isinstance(node, node_cls):
         if not kwargs or all(getattr(node, k, _NotSet) == v for k, v in kwargs.items()):
             yield node
-        if recurse and isinstance(node, ContainerNode):
-            yield from node.find_all(node_cls, recurse, **kwargs)
-    elif _recurse_first and isinstance(node, ContainerNode):
+        if recurse:
+            yield from node.find_all(node_cls, recurse=recurse, **kwargs)
+    elif _recurse_first:
         yield from node.find_all(node_cls, recurse=recurse, **kwargs)
 
 
