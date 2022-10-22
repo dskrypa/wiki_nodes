@@ -273,6 +273,23 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
     def keys(self):
         return self.children.keys()
 
+    def get(self, key: KT, default: T = None, case_sensitive: bool = True) -> Union[C, T]:
+        try:
+            return self.children[key]
+        except KeyError:
+            if case_sensitive or not isinstance(key, str):
+                return default
+
+        ci_key = key.casefold()
+        for name, val in self.children.items():
+            try:
+                if name.casefold() == ci_key:
+                    return val
+            except AttributeError:
+                pass
+
+        return default
+
     @property
     def only_basic(self) -> bool:
         return False
@@ -1103,7 +1120,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
     # region Content Processing Methods
 
     @cached_property
-    def content(self):
+    def content(self) -> Optional[AnyNode]:
         if self.level == 0:
             raw = self.raw.string.strip()  # without .string here, .tags() returns the full page's tags
             node = as_node(raw, self.root, self.preserve_comments)
@@ -1154,7 +1171,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
         fix_nested_dl_ul_ol: bool = True,
         merge_maps: bool = True,
         fix_dl_key_as_header: bool = True,
-    ):
+    ) -> Optional[AnyNode]:
         """
         The content of this section, processed to work around various issues.
 

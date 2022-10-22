@@ -204,6 +204,12 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual('bar', node.find_one(String, value='bar'))
         self.assertIs(None, node.find_one(Link))
 
+    def test_mapping_get_case_insensitive(self):
+        page = get_page('d_addicts_our_blues.wiki', 'Our Blues', 'wiki.d-addicts.com')
+        details = page.sections.find('Details').content.as_mapping()
+        self.assertIs(None, details.get('Original Soundtrack'))
+        self.assertIsInstance(details.get('Original Soundtrack', case_sensitive=False), Link)
+
     # endregion
 
     # region Tag
