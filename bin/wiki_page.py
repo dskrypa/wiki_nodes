@@ -3,9 +3,10 @@
 from functools import cached_property
 from pathlib import Path
 
-from cli_command_parser import Command, Option, Flag, Positional, TriFlag, SubCommand, main, inputs
+from cli_command_parser import Command, Option, Flag, Positional, TriFlag, SubCommand, ParamGroup, main, inputs
 
 from wiki_nodes.__version__ import __author_email__, __version__  # noqa
+from wiki_nodes.nodes.nodes import Node
 
 
 class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='-'):
@@ -23,23 +24,31 @@ class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='
 
     @cached_property
     def page(self):
-        from wiki_nodes import MediaWikiClient
+        from wiki_nodes import MediaWikiClient, WikiPage
 
-        return MediaWikiClient.page_for_article(self.url)
+        url = self.url
+        if not url.startswith(('http:', 'https:')):
+            path = Path(url)
+            if path.exists():
+                return WikiPage(path.stem, None, path.read_text('utf-8'))
+
+        return MediaWikiClient.page_for_article(url)
 
 
 class View(WikiPageViewer, help='View a wiki page'):
     MODES = ('raw', 'raw-pretty', 'headers', 'reprs', 'content', 'processed')
     url = Positional(help='A Wiki page URL')
-    mode = Option('-m', choices=MODES, default='raw', help='Page display mode')
-    recursive = TriFlag('-r', alt_short='-R', alt_prefix='not', help='Whether nodes should be printed recursively')
-    section = Option('-s', help='The section to view')
-    index = Option('-i', type=int, nargs=(1, 2), help='Index or slice within the selected node/section to view')
+    with ParamGroup('Output Options'):
+        mode = Option('-m', choices=MODES, default='raw', help='Page display mode')
+    with ParamGroup('Selection Options'):
+        section = Option('-s', help='The section to view')
+        index = Option('-i', type=int, nargs=(1, 2), help='Index or slice within the selected node/section to view')
+        type = Option('-t', type=inputs.ChoiceMap(Node.TYPES, case_sensitive=False), help='Filter output to the specified node type')
+        recursive = TriFlag('-r', alt_short='-R', alt_prefix='not', help='Whether find_all nodes should be called recursively')
 
     def main(self):
-        kwargs = {'recurse': self.recursive} if self.recursive is not None else {}
         for node in self.get_nodes():
-            node.pprint(self.mode, **kwargs)
+            node.pprint(self.mode)
 
     def get_nodes(self):
         from wiki_nodes import Section
@@ -56,6 +65,9 @@ class View(WikiPageViewer, help='View a wiki page'):
             else:
                 index = self.index[0]
                 nodes = [node.processed()[index] for node in nodes]
+
+        if node_type := self.type:
+            nodes = [n for node in nodes for n in node.find_all(node_type, recurse=self.recursive)]
 
         return nodes
 

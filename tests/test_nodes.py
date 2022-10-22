@@ -460,6 +460,9 @@ class NodeParsingTest(WikiNodesTest):
     def test_table_no_rows(self):
         self.assertEqual([], Table('{|\n! a !! b !! c\n|}').rows)
 
+    def test_table_no_headers(self):
+        self.assertEqual([], Table('{|\n|\n* [[foo]]\n* [[bar]]\n|\n* [[baz]]\n|}').headers)
+
     # endregion
 
     # region Template

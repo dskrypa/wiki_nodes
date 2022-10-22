@@ -51,10 +51,12 @@ _NotSet = object()
 class Node(ClearableCachedPropertyMixin):
     __slots__ = ('raw', 'preserve_comments', 'root', '__compressed')
 
+    TYPES: dict[str, Type[AnyNode]] = {}
     _raw_attr: OptStr = None
     _raw_meth: OptStr = None
 
     def __init_subclass__(cls, attr: OptStr = None, method: OptStr = None, **kwargs):
+        cls.TYPES[cls.__name__] = cls
         super().__init_subclass__(**kwargs)
         if attr:
             cls._raw_attr = attr
@@ -785,18 +787,22 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
 
     @cached_property
     def _header_row_spans(self):
-        return [int(cell.attrs.get('rowspan', 1)) if cell is not None else 1 for cell in next(iter(self.raw.cells()))]
+        first_row = next(iter(self.raw.cells()))
+        if not any(cell is not None and cell.is_header for cell in first_row):
+            return []
+        return [int(cell.attrs.get('rowspan', 1)) if cell is not None else 1 for cell in first_row]
 
     @cached_property
     def _raw_headers(self):
-        last_header_row = max(self._header_row_spans)
+        if not (header_row_spans := self._header_row_spans):
+            return []
+
+        rows = self.raw.cells()[:max(header_row_spans)]
         sub_ws = self._header_ws_pat.sub
+        root, comments = self.root, self.preserve_comments
         return [
-            [
-                as_node(sub_ws(' ', cell.value).strip(), self.root, self.preserve_comments) if cell else cell
-                for cell in row
-            ]
-            for row in self.raw.cells()[:last_header_row]
+            [as_node(sub_ws(' ', cell.value).strip(), root, comments) if cell else cell for cell in row]
+            for row in rows
         ]
 
     @cached_property
