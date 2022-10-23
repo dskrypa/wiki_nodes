@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 from unittest import main, TestCase
+from unittest.mock import Mock
 
+from wiki_nodes.nodes.nodes import _print
 from wiki_nodes.utils import IntervalCoverageMap, short_repr, partitioned, rich_repr
 from wiki_nodes.version import LooseVersion, StrictVersion
 
@@ -82,6 +84,11 @@ class TestUtils(TestCase):
 
     def test_rich_repr_width(self):
         self.assertEqual('[\n    0,\n    1,\n    2,\n    3,\n    4\n]', rich_repr(list(range(5)), 5))
+
+    def test_print(self):
+        self.assertIs(None, _print(_print_func=Mock(side_effect=OSError(22, 'test'))))
+        with self.assertRaises(OSError):
+            _print(_print_func=Mock(side_effect=OSError(23, 'test')))
 
 
 class TestVersion(TestCase):

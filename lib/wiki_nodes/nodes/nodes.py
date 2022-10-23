@@ -1374,10 +1374,10 @@ class Section(ContainerNode['Section'], method='get_sections'):
     def pformat(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True) -> str:
         return '\n'.join(self._pformat(mode, indent, recurse))
 
-    def pprint(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True):
+    def pprint(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True, _print=print):
         for line in self._pformat(mode, indent, recurse):
             try:
-                print(line)
+                _print(line)  # Note: print is passed as an arg to allow it to be testable
             except OSError as e:
                 if e.errno == 22:
                     break
@@ -1410,9 +1410,9 @@ class Section(ContainerNode['Section'], method='get_sections'):
     # endregion
 
 
-def _print(*args, **kwargs):
+def _print(*args, _print_func=print, **kwargs):
     try:
-        print(*args, **kwargs)
+        _print_func(*args, **kwargs)  # Note: print is passed as an arg to allow it to be testable
     except OSError as e:
         if e.errno != 22:  # occurs when writing to a closed pipe
             raise

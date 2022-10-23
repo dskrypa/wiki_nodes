@@ -507,6 +507,26 @@ class NodeParsingTest(WikiNodesTest):
     def test_section_no_subsections_bool_true(self):
         self.assertTrue(Section('==foo==', Mock()))
 
+    def test_section_getitem(self):
+        section = Root('==foo==\n===bar===\n', Mock()).sections
+        with self.assertRaises(KeyError):
+            _ = section['baz']
+
+        self.assertEqual('foo', section[0].title)
+
+    def test_section_contains(self):
+        section = Root('==foo==\n===bar===\n', Mock()).sections
+        self.assertNotIn('baz', section)
+        self.assertNotIn(None, section)
+        self.assertNotIn(-1, section)
+        self.assertIn(0, section)
+        self.assertIn('foo', section)
+
+    def test_section_find_from_child(self):
+        section = Root('==foo==\n===bar===\n', Mock()).sections
+        self.assertEqual('bar', section.get('Bar', case_sensitive=False).title)
+        self.assertIs(None, section.find('baz', None))
+
     def test_section_fixed_dl_subsections(self):
         original = (
             '==Track list==\n'
@@ -523,6 +543,26 @@ class NodeParsingTest(WikiNodesTest):
                 sub_section = section.children[name]
                 self.assertEqual(name, sub_section.title)
                 self.assertEqual(3, len(sub_section.content))
+
+    def test_section_pprint(self):
+        with RedirectStreams() as streams:
+            Section('==foo==', Mock()).pprint()
+
+        self.assertEqual('<Section[2: foo]>\n', streams.stdout)
+        self.assertIs(None, Section('==foo==', Mock()).pprint(_print=Mock(side_effect=OSError(22, 'test'))))
+        with self.assertRaises(OSError):
+            Section('==foo==', Mock()).pprint(_print=Mock(side_effect=OSError(23, 'test')))
+
+    def test_section_pformat(self):
+        section = Section('==foo==', Mock())
+        self.assertEqual('==foo==', section.pformat('headers', recurse=False))
+        self.assertEqual('==foo==', section.pformat('raw'))
+        self.assertEqual('==foo==', section.pformat('raw-pretty'))
+        self.assertEqual('', section.pformat('test123'))
+        self.assertEqual('<Section[2: foo]>\nNone', section.pformat('content'))
+        self.assertEqual("<Section[2: foo]>\n    <String('bar')>", Section('==foo==\nbar', Mock()).pformat('content'))
+        section = Root('==foo==\n===bar===\n', Mock()).sections
+        self.assertEqual('\n    ==foo==\n        ===bar===', section.pformat('headers'))
 
     # endregion
 
