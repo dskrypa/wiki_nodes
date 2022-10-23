@@ -1058,6 +1058,9 @@ class Section(ContainerNode['Section'], method='get_sections'):
             return 0 <= title_or_index < len(self._subsections)
         return False
 
+    def __bool__(self) -> bool:
+        return True  # Sections are more complex than just being a container since they may have content as well
+
     def __iter__(self) -> Iterator[Section]:
         yield from self.children.values()
 

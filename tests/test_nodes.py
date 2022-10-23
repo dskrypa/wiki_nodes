@@ -504,6 +504,9 @@ class NodeParsingTest(WikiNodesTest):
     def test_section_processed_nothing(self):
         self.assertIs(None, Section("==foo==\n", Mock(site='foo', title='bar')).processed())
 
+    def test_section_no_subsections_bool_true(self):
+        self.assertTrue(Section('==foo==', Mock()))
+
     # endregion
 
 
