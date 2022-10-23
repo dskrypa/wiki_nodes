@@ -23,6 +23,13 @@ class TagHandler(NodeHandler[Tag], root=True):
         return as_node(tag.raw.contents.strip(), tag.root, tag.preserve_comments)
 
 
+class BrHandler(TagHandler, for_name='br'):
+    __slots__ = ()
+
+    def get_value(self):
+        return '\n'
+
+
 class NoWikiHandler(TagHandler, for_name='nowiki'):
     __slots__ = ()
 

@@ -86,6 +86,10 @@ class Node(ClearableCachedPropertyMixin):
     def stripped(self, *args, **kwargs) -> str:
         return strip_style(self.raw.string, *args, **kwargs)
 
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        value = self.raw.string
+        yield value.strip() if strip else value
+
     # region Internal Methods
 
     def __repr__(self) -> str:
@@ -232,6 +236,10 @@ class ContainerNode(Node, Generic[C], ABC):
         for value in self:
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        for value in self:
+            yield from _strings(value, strip)
+
 
 class CompoundNode(ContainerNode[C]):
     @cached_property
@@ -323,6 +331,11 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
         for value in self.values():
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        for key, value in self.children.items():
+            yield from _strings(key, strip)
+            yield from _strings(value, strip)
+
 
 class Tag(BasicNode, method='get_tags'):
     raw: _Tag
@@ -336,7 +349,7 @@ class Tag(BasicNode, method='get_tags'):
 
     def __repr__(self) -> str:
         attrs = f':{self.attrs}' if self.attrs else ''
-        return f'<{self.__class__.__name__}[{self.name}{attrs}][{self.value}]>'
+        return f'<{self.__class__.__name__}[{self.name}{attrs}][{self.value!r}]>'
 
     @cached_property
     def handler(self) -> TagHandler:
@@ -357,6 +370,9 @@ class Tag(BasicNode, method='get_tags'):
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         if value := self.value:
             yield from _find_all(value, node_cls, recurse, **kwargs)
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.value, strip)
 
     def __getitem__(self, item):
         return self.attrs[item]
@@ -381,6 +397,9 @@ class String(BasicNode):
     @property
     def lower(self) -> str:
         return self.value.lower()
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield self.value.strip() if strip else self.value
 
     # region Dunder Methods
 
@@ -478,6 +497,10 @@ class Link(BasicNode):
     @classmethod
     def from_title(cls, title: str, root: Root = None, text: str = None) -> Link:
         return cls(cls._format(title, text), root)
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        if show := self.show:
+            yield show.strip() if strip else show
 
     @cached_property
     def show(self) -> Optional[str]:
@@ -590,6 +613,11 @@ class ListEntry(CompoundNode[C]):
             yield from _find_all(value, node_cls, recurse, **kwargs)
         for value in self:
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.value, strip)
+        for value in self:
+            yield from _strings(value, strip)
 
     @cached_property
     def sub_list(self) -> Optional[List[ListEntry[C]]]:
@@ -769,6 +797,9 @@ class TableSeparator:
         indent = ' ' * indentation
         return f'{indent}<{self.__class__.__name__}[{self.value!r}]>'
 
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.value, strip)
+
 
 class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='tables'):
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
@@ -811,16 +842,20 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         for row_data in self._raw_headers:
             cell_strs = []
             for cell in row_data:
-                while isinstance(cell, CompoundNode):
-                    cell = cell[0]
-                if isinstance(cell, String):
-                    cell_strs.append(cell.value)
-                elif isinstance(cell, Link):
-                    cell_strs.append(cell.text)
-                elif isinstance(cell, Template) and cell.lc_name == 'abbr':
+                if isinstance(cell, Template) and cell.lc_name == 'abbr':
                     cell_strs.append(cell.value[-1])
                 elif cell is not None:
-                    log.debug(f'Unexpected cell type; using data instead: {cell}')
+                    cell_strs.append(' '.join(_strings(cell)))
+                # while isinstance(cell, CompoundNode):
+                #     cell = cell[0]
+                # if isinstance(cell, String):
+                #     cell_strs.append(cell.value)
+                # elif isinstance(cell, Link):
+                #     cell_strs.append(cell.show)
+                # elif isinstance(cell, Template) and cell.lc_name == 'abbr':
+                #     cell_strs.append(cell.value[-1])
+                # elif cell is not None:
+                #     log.debug(f'Unexpected cell type; using data instead: {cell}')
             str_headers.append(cell_strs)
         return str_headers
 
@@ -850,6 +885,7 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
                     pass
                 else:
                     if col_span >= len(headers):  # Some tables have an incorrect value...
+                        # TODO: This really needs an example test case + unit test...
                         processed.append(TableSeparator(node_fn(row[0])))
                         continue
 
@@ -865,6 +901,14 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
     @cached_property
     def children(self) -> list[Union[TableSeparator, MappingNode[C]]]:
         return self.rows
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.caption, strip)
+        for header in self.headers:
+            yield from _strings(header, strip)
+        for row in self.rows:
+            for cell in row.values():
+                yield from _strings(cell, strip)
 
     def __rich_repr__(self):
         yield 'caption', self.caption, None
@@ -885,33 +929,28 @@ class Template(BasicNode, attr='templates'):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.name!r}: {self.value!r})>'
 
-    def pformat(self, indentation: int = 0) -> str:
+    def pformat(self, indentation: int = 0, max_width: int = None) -> str:
         indent = ' ' * indentation
+        vo, vc = '[]'
         if value := self.value:
             if isinstance(value, Node):
                 value_str = value.pformat(indentation + 4)
-                if '\n' in value_str:
-                    value_str = f'\n{value_str}\n{indent}'
-                else:  # TODO: There should be a better way to do this while avoiding a 2nd call...
+                if '\n' not in value_str:  # TODO: There should be a better way to do this while avoiding a 2nd call...
                     value_str = value.pformat()
                 value = value_str
-            elif isinstance(value, list):
-                inside = ' ' * (indentation + 4)
-                inner = indentation + 8
-                value = ',\n'.join(f'{inside}{v.pformat(inner)}' for v in value)
-                if '\n' in value:
-                    value = f'\n{value}\n{indent}'
             else:
-                value = rich_repr(value)
+                value = rich_repr(value, max_width)
                 if '\n' in value:
                     lines = value.splitlines()
-                    lines[-1] = indent + lines[-1]
-                    value = '\n'.join(lines)
+                    vo += lines[0]
+                    vc = lines[-1] + vc
+                    value = '\n'.join(indent + line for line in lines[1:-1])
 
             if '\n' in value:
-                return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value}]>'
+                vo += '\n'
+                vc = f'\n{indent}{vc}'
 
-        return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value}]>'
+        return f'{indent}<{self.__class__.__name__}[{self.name!r}]{vo}{value}{vc}>'
 
     def __rich_repr__(self):
         yield self.name
@@ -930,6 +969,9 @@ class Template(BasicNode, attr='templates'):
     @cached_property
     def value(self):
         return self.handler.get_value()
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.value, strip)
 
     @cached_property
     def zipped(self) -> Optional[MappingNode]:
@@ -994,6 +1036,9 @@ class Root(Node):
         :return: Generator that yields :class:`Node` objects of the given type
         """
         return self.sections.find_all(node_cls, recurse, **kwargs)
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.sections, strip)
 
     @cached_property
     def sections(self) -> Section:
@@ -1126,6 +1171,14 @@ class Section(ContainerNode['Section'], method='get_sections'):
         if recurse:
             for child in self:
                 yield from _find_all(child, node_cls, recurse, **kwargs)
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        if title := self.title:
+            yield title.strip() if strip else title
+
+        yield from _strings(self.content, strip)
+        for subsection in self:
+            yield from _strings(subsection, strip)
 
     # region Content Processing Methods
 
@@ -1434,6 +1487,26 @@ def _find_all(node, node_cls: Type[N], recurse: bool = True, _recurse_first: boo
             pass
         else:
             yield from find_all(node_cls, recurse=recurse, **kwargs)
+
+
+def _strings(value, strip: bool = True) -> Iterator[str]:
+    if value is None:
+        return
+    elif isinstance(value, str):
+        yield value.strip() if strip else value
+    elif isinstance(value, Node):
+        yield from value.strings(strip)
+    elif isinstance(value, Mapping):
+        for key, val in value.items():
+            yield from _strings(key)
+            yield from _strings(val)
+    else:
+        try:
+            for val in value:
+                yield from _strings(val)
+        except TypeError:
+            value = str(value)
+            yield value.strip() if strip else value
 
 
 def iw_community_link_match(title: str) -> Optional[Match]:

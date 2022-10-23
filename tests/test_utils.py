@@ -3,7 +3,7 @@
 from unittest import main, TestCase
 from unittest.mock import Mock
 
-from wiki_nodes.nodes.nodes import _print
+from wiki_nodes.nodes.nodes import _print, _strings
 from wiki_nodes.utils import IntervalCoverageMap, short_repr, partitioned, rich_repr
 from wiki_nodes.version import LooseVersion, StrictVersion
 
@@ -89,6 +89,10 @@ class TestUtils(TestCase):
         self.assertIs(None, _print(_print_func=Mock(side_effect=OSError(22, 'test'))))
         with self.assertRaises(OSError):
             _print(_print_func=Mock(side_effect=OSError(23, 'test')))
+
+    def test_strings_unexpected_types(self):
+        self.assertListEqual(['1'], list(_strings(1)))
+        self.assertListEqual(['a', 'b'], list(_strings({'a': 'b'})))
 
 
 class TestVersion(TestCase):

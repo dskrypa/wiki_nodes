@@ -28,6 +28,8 @@ def get_page(name: str, title: str, site: str = SITE) -> WikiPage:
 
 
 class NodeParsingTest(WikiNodesTest):
+    # region as_node
+
     def test_no_content(self):
         self.assertIs(None, as_node(' '))
 
@@ -39,43 +41,13 @@ class NodeParsingTest(WikiNodesTest):
         node = as_node("""'''Kim Tae-hyeong''' ({{Korean\n    | hangul  = 김태형\n    | hanja   =\n    | rr      =\n    | mr      =\n    | context =\n}}; born February 11, 1988), better known as '''Paul Kim''' ({{Korean\n    | hangul  = 폴킴\n    | hanja   =\n    | rr      =\n    | mr      =\n    | context =\n}}) is a South Korean singer. He debuted in 2014 and has released two extended plays and one full-length album in two parts: ''The Road'' (2017) and ''Tunnel'' (2018).""")
         self.assertTrue(not any(isinstance(n, List) for n in node))
 
-    def test_link(self):
-        node = as_node("""[[test]]""")
-        self.assertIsInstance(node, Link)
-
     def test_str_link_str(self):
         node = as_node(""""[[title|text]]" - 3:30""")
         expected = CompoundNode('"[[title|text]]" - 3:30')
         expected.children.extend([String('"'), Link.from_title('title', text='text'), String('" - 3:30')])
         self.assertEqual(node, expected)
 
-    def test_sections(self):
-        node = Root('==one==\n[[test]]\n==two==\n{{n/a}}\n===two a===', site='en.wikipedia.org')
-        root_section = node.sections
-        self.assertEqual(2, root_section.depth)
-        self.assertEqual(2, len(root_section.children))
-        self.assertEqual(0, len(root_section['one'].children))
-        self.assertEqual(Link('[[test]]', root=node), root_section['one'].content)
-        self.assertEqual(1, len(root_section['two'].children))
-        self.assertEqual(Template('{{n/a}}'), root_section['two'].content)
-        self.assertIs(None, root_section['two']['two a'].content)
-
-    def test_section_parents(self):
-        node = Root('==a==\n===b===\n==c==\n====d====\n==e==\n===f===\n====g====\n===h===\n====i====\n')
-        root = node.sections
-        self.assertIn('b', root['a'])
-        self.assertIn('d', root['c'])
-        self.assertIn('f', root['e'])
-        self.assertIn('g', root['e']['f'])
-        self.assertIn('h', root['e'])
-        self.assertIn('i', root['e']['h'])
-
-    def test_invalid_raw(self):
-        with self.assertRaisesRegex(ValueError, 'Invalid wiki Tag value'):
-            Tag('[[test]]')
-
-    def test_stripped_style(self):
-        self.assertEqual('test', String("'''test'''").stripped())
+    # endregion
 
     # region repr & pprint
 
@@ -83,7 +55,7 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual('<Node()>', repr(Node('test')))
         self.assertEqual("<BasicNode(WikiText('test'))>", repr(BasicNode('test')))
         self.assertEqual('<CompoundNode[]>', repr(CompoundNode('test')))
-        self.assertEqual('<Tag[br][None]>', repr(Tag('<br/>')))
+        self.assertEqual("<Tag[br]['\\n']>", repr(Tag('<br/>')))
         self.assertEqual("<ListEntry(<String('test')>)>", repr(ListEntry('test')))
         self.assertEqual("<Template('n/a': None)>", repr(Template('{{n/a}}')))
         self.assertEqual("<Section[2: foo]>", repr(Section('==foo==', None)))
@@ -117,9 +89,6 @@ class NodeParsingTest(WikiNodesTest):
         )
         self.assertEqual(expected, streams.stdout)
 
-    def test_pformat_template(self):
-        self.assertEqual("<Template['n/a'][None]>", Template('{{n/a}}').pformat())
-
     def test_compound_rich_repr(self):
         node = as_node("'''foo''' [[bar]]")
         self.assertEqual(node.children, list(node.__rich_repr__()))
@@ -141,6 +110,8 @@ class NodeParsingTest(WikiNodesTest):
 
     # endregion
 
+    # region Basics
+
     def test_node_bool(self):
         self.assertTrue(Node('test'))
         self.assertFalse(Node(''))
@@ -157,6 +128,15 @@ class NodeParsingTest(WikiNodesTest):
 
     def test_basic_node_set(self):
         self.assertSetEqual({BasicNode('test')}, {BasicNode('test'), BasicNode('test')})
+
+    def test_node_strings(self):
+        text = '  test  '
+        self.assertListEqual([text], list(Node(text).strings(False)))
+        self.assertListEqual(['test'], list(Node(text).strings()))
+        self.assertListEqual(['test'], list(String(text).strings(False)))  # the value is stripped in init
+        self.assertListEqual(['test'], list(String(text).strings()))
+
+    # endregion
 
     # region CompoundNode
 
@@ -210,19 +190,31 @@ class NodeParsingTest(WikiNodesTest):
         self.assertIs(None, details.get('Original Soundtrack'))
         self.assertIsInstance(details.get('Original Soundtrack', case_sensitive=False), Link)
 
+    def test_mapping_get_case_insensitive_alt_ket_type(self):
+        self.assertIs(None, MappingNode('', content={'a': 1, 1: 1}).get('b', case_sensitive=False))
+
     # endregion
 
     # region Tag
 
+    def test_invalid_raw(self):
+        with self.assertRaisesRegex(ValueError, 'Invalid wiki Tag value'):
+            Tag('[[test]]')
+
     def test_tag_basic(self):
         self.assertTrue(Tag('<br/>').is_basic)
+        self.assertTrue(Tag('<hr/>').is_basic)
         self.assertFalse(Tag('<ref>{{foo|[[bar]]|[[baz]]}}</ref>').is_basic)
+
+    def test_tag_strings(self):
+        self.assertListEqual(['bar', 'baz'], list(Tag('<ref>{{foo|[[bar]]|[[baz]]}}</ref>').strings()))
 
     def test_tag_find_all(self):
         tag = Tag('<b>[[foo]]</b>')
         self.assertEqual([Link('[[foo]]')], list(tag.find_all(Link, title='foo')), f'No match found in {tag.value!r}')
         self.assertEqual([], list(tag.find_all(Template)))
         self.assertEqual([], list(Tag('<br/>').find_all(Template)))
+        self.assertEqual([], list(Tag('<hr/>').find_all(Template)))
 
     def test_tag_attrs(self):
         tag = Tag('<gallery spacing="small"></gallery>')
@@ -233,6 +225,9 @@ class NodeParsingTest(WikiNodesTest):
     # endregion
 
     # region String
+
+    def test_stripped_style(self):
+        self.assertEqual('test', String("'''test'''").stripped())
 
     def test_str_lower(self):
         self.assertEqual('foo', String('FOO').lower)
@@ -255,6 +250,9 @@ class NodeParsingTest(WikiNodesTest):
     # endregion
 
     # region Link
+
+    def test_link(self):
+        self.assertIsInstance(as_node("""[[test]]"""), Link)
 
     def test_bad_link(self):
         with self.assertRaisesRegex(ValueError, 'Link init attempted with non-link'):
@@ -302,6 +300,11 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual('foo', title)
         with self.assertRaises(NoLinkTarget):
             _ = Link('[[ ]]', root=root).client_and_title
+
+    def test_link_strings(self):
+        self.assertListEqual(['bar'], list(Link('[[foo|bar]]').strings()))
+        self.assertListEqual(['foo'], list(Link('[[foo]]').strings()))
+        self.assertListEqual([], list(Link('[[ ]]').strings()))
 
     # endregion
 
@@ -424,12 +427,19 @@ class NodeParsingTest(WikiNodesTest):
             'Released': ListEntry('; Released\n: 2011.12.14'),
             'Tracklist': List('\n'.join(content.splitlines()[-3:])),
         }
-        self.assert_equal(expected, Root(content).sections.processed()[0].children)
+        root = Root(content)
+        self.assert_equal(expected, root.sections.processed()[0].children)
+        expected = ['Artist', "Girls' Generation", 'Album', 'MR. TAXI', 'Released', '2011.12.14', 'Tracklist']
+        expected += ['MR. TAXI', 'The Boys', 'Telepathy', '(텔레파시)']
+        self.assert_equal(expected, list(root.strings()))
 
     def test_list_iter_flat(self):
         # expected = [ListEntry('* foo'), ListEntry('** a'), ListEntry('** b')]
         expected = ['foo', 'a', 'b', 'c']
         self.assert_equal(expected, list(List('* foo\n** a\n** b\n*\n** c\n').iter_flat()))
+
+    def test_list_strings(self):
+        self.assertListEqual(['foo', 'bar', 'baz'], list(List('* foo\n** bar\n** baz\n').strings()))
 
     # endregion
 
@@ -439,9 +449,10 @@ class NodeParsingTest(WikiNodesTest):
         ts = TableSeparator('foo')
         self.assert_equal("<TableSeparator('foo')>", repr(ts))
         self.assert_equal("<TableSeparator['foo']>", ts.pformat())
+        self.assertListEqual(['foo'], list(ts.strings()))
 
     def test_table_basics(self):
-        table = Table('{|\n! a !! b !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
+        table = Table('{|\n! a !! [[b]] !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
         self.assert_equal(['a', 'b', 'c'], table.headers)
         expected = [{'a': '1', 'b': '2', 'c': '3'}, {'a': '4', 'b': '5', 'c': '6'}]
         self.assert_equal(expected, [row.children for row in table.children])
@@ -463,6 +474,11 @@ class NodeParsingTest(WikiNodesTest):
     def test_table_no_headers(self):
         self.assertEqual([], Table('{|\n|\n* [[foo]]\n* [[bar]]\n|\n* [[baz]]\n|}').headers)
 
+    def test_table_strings(self):
+        table = Table('{|\n! a !! [[b]] !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
+        expected = ['a', 'b', 'c', '1', '2', '3', '4', '5', '6']
+        self.assertListEqual(expected, list(table.strings()))
+
     # endregion
 
     # region Template
@@ -478,6 +494,22 @@ class NodeParsingTest(WikiNodesTest):
         tmpl = Template('{{about}}', root=Mock(title='foo', site='bar'))
         self.assertEqual('foo_(disambiguation)', tmpl.find_one(Link).title)
         self.assertIs(None, tmpl.find_one(Table))
+
+    def test_tmpl_pformat_node(self):
+        self.assert_strings_equal("<Template['n/a'][None]>", Template('{{n/a}}').pformat())
+        self.assert_strings_equal("<Template['small'][<Link:'[[foo]]'>]>", Template('{{small|[[foo]]}}').pformat())
+
+        expected = "<Template['foo'][[<String('bar')>, <String('baz')>]]>"
+        self.assert_strings_equal(expected, Template('{{foo|bar|baz}}').pformat())
+
+        compound = "        <String('foo')>,\n        <Link:'[[bar]]'>"
+        expected = f"<Template['test'][\n    <CompoundNode[\n{compound}\n    ]>\n]>"
+        self.assert_strings_equal(expected, Template('{{test|foo [[bar]]}}').pformat())
+
+        tmpl = Template('{{test}}')
+        tmpl.__dict__['value'] = [as_node('foo [[bar]]'), String('baz')]
+        expected = f"<Template['test'][[\n    CompoundNode(\n{compound}\n    ),\n    <String('baz')>\n]]>"
+        self.assert_strings_equal(expected, tmpl.pformat(max_width=10))
 
     # endregion
 
@@ -496,10 +528,36 @@ class NodeParsingTest(WikiNodesTest):
 
     # region Section
 
+    def test_sections(self):
+        node = Root('==one==\n[[test]]\n==two==\n{{n/a}}\n===two a===', site='en.wikipedia.org')
+        root_section = node.sections
+        self.assertEqual(2, root_section.depth)
+        self.assertEqual(2, len(root_section.children))
+        self.assertEqual(0, len(root_section['one'].children))
+        self.assertEqual(Link('[[test]]', root=node), root_section['one'].content)
+        self.assertEqual(1, len(root_section['two'].children))
+        self.assertEqual(Template('{{n/a}}'), root_section['two'].content)
+        self.assertIs(None, root_section['two']['two a'].content)
+
+    def test_section_parents(self):
+        node = Root('==a==\n===b===\n==c==\n====d====\n==e==\n===f===\n====g====\n===h===\n====i====\n')
+        root = node.sections
+        self.assertIn('b', root['a'])
+        self.assertIn('d', root['c'])
+        self.assertIn('f', root['e'])
+        self.assertIn('g', root['e']['f'])
+        self.assertIn('h', root['e'])
+        self.assertIn('i', root['e']['h'])
+
     def test_section_processed_all_disabled(self):
         section = Section("==foo==\n'''foo''' [[bar]]", Mock(site='foo', title='bar'))
         content = section.content
         self.assertEqual(content, section.processed(False, False, False, False, False))
+
+    def test_section_strings(self):
+        self.assertListEqual(['foo', 'foo', 'bar'], list(Section("==foo==\n'''foo''' [[bar]]", Mock()).strings()))
+        node = Root('==a==\n===b===\n==c==\n====d====\n==e==\n===f===\n====g====\n===h===\n====i====\n')
+        self.assertListEqual(list('abcdefghi'), list(node.strings()))
 
     def test_section_processed_nothing(self):
         self.assertIs(None, Section("==foo==\n", Mock(site='foo', title='bar')).processed())
