@@ -507,6 +507,23 @@ class NodeParsingTest(WikiNodesTest):
     def test_section_no_subsections_bool_true(self):
         self.assertTrue(Section('==foo==', Mock()))
 
+    def test_section_fixed_dl_subsections(self):
+        original = (
+            '==Track list==\n'
+            ';Digital\n#"foo abc" - 2:54\n#"bar def" - 3:12\n#"baz ghi" - 3:47\n'
+            ';Physical\n#"foo rst" - 3:18\n#"bar uvw" - 2:46\n#"baz xyz" - 2:29\n'
+        )
+        section = Section(original, Mock(site='foo', title='bar'))
+        self.assertEqual(0, len(section.children))
+        content = section.processed(False, False, False, False, fix_dl_key_as_header=True)
+        self.assertEqual(0, len(content))
+        self.assertEqual(2, len(section.children))
+        for name in ('Digital', 'Physical'):
+            with self.subTest(name=name):
+                sub_section = section.children[name]
+                self.assertEqual(name, sub_section.title)
+                self.assertEqual(3, len(sub_section.content))
+
     # endregion
 
 

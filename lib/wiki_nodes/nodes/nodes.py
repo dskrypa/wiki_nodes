@@ -1031,10 +1031,8 @@ class Section(ContainerNode['Section'], method='get_sections'):
 
     @classmethod
     def normalize_raw(cls, raw: Union[Raw, _Section], index: int = None) -> _Section:
-        if isinstance(raw, str) and index is None:
-            index = 1
-        else:
-            index = 0
+        if index is None:
+            index = 1 if isinstance(raw, str) else 0
         return super().normalize_raw(raw, index)  # noqa
 
     def __repr__(self) -> str:
