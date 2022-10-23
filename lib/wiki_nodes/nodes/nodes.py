@@ -889,9 +889,12 @@ class Template(BasicNode, attr='templates'):
         indent = ' ' * indentation
         if value := self.value:
             if isinstance(value, Node):
-                value = value.pformat(indentation + 4)
-                if '\n' in value:
-                    value = f'\n{value}\n{indent}'
+                value_str = value.pformat(indentation + 4)
+                if '\n' in value_str:
+                    value_str = f'\n{value_str}\n{indent}'
+                else:  # TODO: There should be a better way to do this while avoiding a 2nd call...
+                    value_str = value.pformat()
+                value = value_str
             elif isinstance(value, list):
                 inside = ' ' * (indentation + 4)
                 inner = indentation + 8
@@ -908,7 +911,7 @@ class Template(BasicNode, attr='templates'):
             if '\n' in value:
                 return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value}]>'
 
-        return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value!r}]>'
+        return f'{indent}<{self.__class__.__name__}[{self.name!r}][{value}]>'
 
     def __rich_repr__(self):
         yield self.name
