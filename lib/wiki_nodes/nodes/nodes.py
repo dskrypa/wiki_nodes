@@ -1020,10 +1020,10 @@ class Root(Node):
         yield root
         yield from root
 
-    def get(
-        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = False
+    def find_section(
+        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = True
     ) -> Union[Section, T]:
-        return self.sections.get(title_or_index, default, case_sensitive=case_sensitive)
+        return self.sections.find_section(title_or_index, default, case_sensitive=case_sensitive)
 
     def find_all(self, node_cls: Type[N], recurse: bool = True, **kwargs) -> Iterator[N]:
         """
@@ -1132,8 +1132,8 @@ class Section(ContainerNode['Section'], method='get_sections'):
             return max(section.depth for section in self.children.values()) + 1
         return 0
 
-    def get(
-        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = False
+    def find_section(
+        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = True
     ) -> Union[Section, T]:
         return self._find(title_or_index, default, case_sensitive=case_sensitive)
 
@@ -1142,7 +1142,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
         return self._find(title_or_index, default, case_sensitive=True)
 
     def _find(
-        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = False
+        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = True
     ) -> Union[Section, T]:
         try:
             return self.children[title_or_index]

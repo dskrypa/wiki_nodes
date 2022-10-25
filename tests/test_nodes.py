@@ -186,7 +186,7 @@ class NodeParsingTest(WikiNodesTest):
 
     def test_mapping_get_case_insensitive(self):
         page = get_page('d_addicts_our_blues.wiki', 'Our Blues', 'wiki.d-addicts.com')
-        details = page.sections.find('Details').content.as_mapping()
+        details = page.sections.find_section('Details').content.as_mapping()
         self.assertIs(None, details.get('Original Soundtrack'))
         self.assertIsInstance(details.get('Original Soundtrack', case_sensitive=False), Link)
 
@@ -459,12 +459,12 @@ class NodeParsingTest(WikiNodesTest):
 
     def test_multi_line_keys(self):
         page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
-        table = page.get('Charts').find_one(Table)
+        table = page.find_section('Charts').find_one(Table)
         self.assertListEqual(['Chart (2021)', 'Peak position'], table.headers)
 
     def test_release_history(self):
         page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
-        table = page.get('Release History').find_one(Table)
+        table = page.find_section('Release History', case_sensitive=False).find_one(Table)
         self.assertListEqual(['Region', 'Date', 'Label', 'Distributor', 'Format(s)'], table.headers)
         self.assertEqual(4, len(table.children))
 
@@ -582,7 +582,7 @@ class NodeParsingTest(WikiNodesTest):
 
     def test_section_find_from_child(self):
         section = Root('==foo==\n===bar===\n', Mock()).sections
-        self.assertEqual('bar', section.get('Bar', case_sensitive=False).title)
+        self.assertEqual('bar', section.find_section('Bar', case_sensitive=False).title)
         self.assertIs(None, section.find('baz', None))
 
     def test_section_fixed_dl_subsections(self):
