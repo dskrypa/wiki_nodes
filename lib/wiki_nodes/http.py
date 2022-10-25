@@ -59,6 +59,15 @@ class WikiCache:
         self.reset_caches(False)
         self.img_dir = Path(get_user_cache_dir(f'wiki/{host}/images'))
 
+    def __getstate__(self) -> dict[str, Union[int, Path]]:
+        return {'ttl': self.ttl, 'base_dir': self.base_dir, 'img_dir': self.img_dir}
+
+    def __setstate__(self, state: dict[str, Union[int, Path]]):
+        self.ttl = state['ttl']
+        self.base_dir = state['base_dir']
+        self.img_dir = state['img_dir']
+        self.reset_caches(False)
+
     def reset_caches(self, hard: bool = False):
         cache_dir = self.base_dir
         if hard:
@@ -137,13 +146,31 @@ class MediaWikiClient(RequestsClient):
             super().__init__(host_or_url, *args, **kwargs)
             if self.host in ('en.wikipedia.org', 'www.generasia.com'):
                 self.path_prefix = 'w'
-            if MediaWikiClient._siteinfo_cache is None:
-                MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
+            self.__init()
             self._cache = WikiCache(self.host, ttl)
-            self.__initialized = True
+
+    def __init(self):
+        if MediaWikiClient._siteinfo_cache is None:
+            MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
+        self.__initialized = True
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.host})>'
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = super().__getstate__()
+        state['_cache'] = self._cache
+        return state
+
+    def __setstate__(self, state: dict[str, Any]):
+        if not getattr(self, '_MediaWikiClient__initialized', False):
+            cache = state.pop('_cache')
+            super().__setstate__(state)
+            self.__init()
+            self._cache = cache
+
+    def __getnewargs__(self):
+        return (self.host,)
 
     @cached_property
     def siteinfo(self) -> dict[str, Any]:

@@ -13,7 +13,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
-from copy import copy
+from copy import copy, deepcopy
 from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match, Generic
 
 from wikitextparser import (
@@ -63,13 +63,13 @@ class Node(ClearableCachedPropertyMixin):
         if method:
             cls._raw_meth = method
 
-    def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, _index: int = 0):
+    def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, _index: int = None):
         self.raw = self.normalize_raw(raw, _index)
         self.preserve_comments = preserve_comments
         self.root = root
 
     @classmethod
-    def normalize_raw(cls, raw: Raw, index: int = 0) -> WikiText:
+    def normalize_raw(cls, raw: Raw, index: int = None) -> WikiText:
         if isinstance(raw, str):
             raw = WikiText(raw)
         if (attr := cls._raw_attr) and type(raw) is WikiText:
@@ -78,6 +78,8 @@ class Node(ClearableCachedPropertyMixin):
             raw_seq = getattr(raw, method)()
         else:
             return raw
+        if index is None:
+            index = 0
         try:
             return raw_seq[index]
         except IndexError as e:
@@ -118,6 +120,9 @@ class Node(ClearableCachedPropertyMixin):
     @property
     def is_basic(self) -> Optional[bool]:
         return None
+
+    def copy(self):
+        return deepcopy(self)
 
     # region Printing / Formatting Methods
 
@@ -441,12 +446,14 @@ class Link(BasicNode):
         self.text = self.raw.text
 
     @classmethod
-    def normalize_raw(cls, raw: Union[Raw, _Link], index: int = 0) -> _Link:
+    def normalize_raw(cls, raw: Union[Raw, _Link], index: int = None) -> _Link:
         raw = super().normalize_raw(raw, index)
         if isinstance(raw, _Link):
             return raw  # noqa
+        if index is None:
+            index = 0
         try:
-            return raw.wikilinks[0]
+            return raw.wikilinks[index]
         except IndexError as e:
             raw_str = str(raw).strip()
             raw_str = f'"""\n{raw_str}\n"""' if '\n' in raw_str else repr(raw_str)
@@ -812,7 +819,7 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         self.caption = self.raw.caption.strip() if self.raw.caption else None
 
     @classmethod
-    def normalize_raw(cls, raw: Union[Raw, _Table], index: int = 0) -> _Table:
+    def normalize_raw(cls, raw: Union[Raw, _Table], index: int = None) -> _Table:
         raw = cls._rowspan_with_template.sub(r'\1 | {', raw.string if isinstance(raw, WikiText) else raw)
         return super().normalize_raw(raw, index)  # noqa
 
