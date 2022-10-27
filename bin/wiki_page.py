@@ -36,7 +36,7 @@ class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='
 
 
 class View(WikiPageViewer, help='View a wiki page'):
-    MODES = ('raw', 'raw-pretty', 'headers', 'reprs', 'content', 'processed')
+    MODES = ('raw', 'raw-pretty', 'headers', 'reprs', 'content', 'processed', 'toc')
     url = Positional(help='A Wiki page URL')
     with ParamGroup('Output Options'):
         mode = Option('-m', choices=MODES, default='raw', help='Page display mode')

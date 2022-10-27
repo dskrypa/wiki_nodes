@@ -8,6 +8,7 @@ from wiki_nodes.page import WikiPage
 from wiki_nodes.testing import WikiNodesTest, mocked_client
 
 SITE = 'en.wikipedia.org'
+KPOP_FANDOM = 'kpop.fandom.com'
 DATA_DIR = Path(__file__).resolve().parent.joinpath('data', 'test_page')
 
 
@@ -130,11 +131,18 @@ class WikiPageTest(WikiNodesTest):
 
 class FullPageTests(WikiNodesTest):
     def test_start_up_ost(self):
-        site = 'kpop.fandom.com'
         text = load_data('kpop_fandom_Start-Up_OST.wiki')
-        page = WikiPage('Start-Up OST', site, text, ['OST'], client=mocked_client(site))
+        page = WikiPage('Start-Up OST', KPOP_FANDOM, text, ['OST'], client=mocked_client(KPOP_FANDOM))
         links = {link.title: link for link in page.find_all(Link)}
         self.assertEqual(6, len(links))
+
+    def test_toc_format(self):
+        page = WikiPage('Start-Up OST', KPOP_FANDOM, load_data('kpop_fandom_Start-Up_OST.wiki'), ['OST'])
+        expected = (
+            '1. Track list\n    1.1. Pre-releases\n    1.2. Full OST\n'
+            '        1.2.1. Disc 1\n        1.2.2. Disc 2\n        1.2.3. Disc 3\n2. Gallery'
+        )
+        self.assert_strings_equal(expected, page.sections.pformat('toc'))
 
 
 if __name__ == '__main__':

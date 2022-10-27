@@ -1070,15 +1070,22 @@ class Section(ContainerNode['Section'], method='get_sections'):
     raw: _Section
     title: str
     level: int
+    parent: Optional[Section]
     children: dict[str, Section] = None  # = None is necessary to satisfy the abstract property
     _subsections: list[Section]
 
     def __init__(
-        self, raw: Union[Raw, _Section], root: Optional[Root], preserve_comments: bool = False, _index: int = None
+        self,
+        raw: Union[Raw, _Section],
+        root: Optional[Root],
+        preserve_comments: bool = False,
+        parent: Optional[Section] = None,
+        _index: int = None,
     ):
         super().__init__(raw, root, preserve_comments, _index)
         self.title = strip_style(self.raw.title) if self.raw.title else ''
         self.level = self.raw.level
+        self.parent = parent
         self.children = {}  # populated by Root.sections
         self._subsections = []
 
@@ -1123,15 +1130,29 @@ class Section(ContainerNode['Section'], method='get_sections'):
         return f'{bars}{title}{bars}'
 
     def _add_sub_section(self, title: str, section: Section):
+        section.parent = self
         self.children[title] = section
         self._subsections.append(section)
 
     def _add_pseudo_sub_section(self, title: str, nodes: Iterable[Node], delim: str = ' '):
         bars = '=' * (self.level + 1)
         raw = f'{bars}{title}{bars}\n{delim.join(n.raw.string for n in nodes)}'
-        self._add_sub_section(title, self.__class__(raw, self.root, self.preserve_comments, 1))
+        self._add_sub_section(title, self.__class__(raw, self.root, self.preserve_comments, _index=1))
 
     # endregion
+
+    @cached_property
+    def number(self) -> int:
+        try:
+            return self.parent._subsections.index(self) + 1
+        except AttributeError:  # self.parent is None
+            return 0
+
+    @cached_property
+    def toc_number(self) -> str:
+        if not self.parent or not self.parent.number:
+            return str(self.number)
+        return f'{self.parent.toc_number}.{self.number}'
 
     @property
     def depth(self) -> int:
@@ -1452,6 +1473,11 @@ class Section(ContainerNode['Section'], method='get_sections'):
             yield self.raw.pformat()
         elif mode == 'raw':
             yield self.raw.string
+        elif mode == 'toc':
+            if self.title and self.number:
+                indent_str = ' ' * indent
+                yield f'{indent_str}{self.toc_number}. {self.title}'
+                indent += 4
         else:
             indent_str = ' ' * indent
             indent += 4
