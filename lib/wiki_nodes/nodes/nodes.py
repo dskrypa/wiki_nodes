@@ -13,8 +13,13 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
-from copy import copy, deepcopy
+from copy import copy
 from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match, Generic
+
+try:
+    from typing import Self
+except ImportError:
+    Self = TypeVar('Self')  # noqa
 
 from wikitextparser import (
     WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
@@ -121,8 +126,17 @@ class Node(ClearableCachedPropertyMixin):
     def is_basic(self) -> Optional[bool]:
         return None
 
-    def copy(self):
-        return deepcopy(self)
+    def copy(self) -> Self:
+        cls = self.__class__
+        clone = cls.__new__(cls)
+        clone.raw = self.raw
+        clone.preserve_comments = self.preserve_comments
+        clone.root = self.root
+        try:
+            clone.__compressed = self.__compressed
+        except AttributeError:
+            pass
+        return clone
 
     # region Printing / Formatting Methods
 
@@ -256,6 +270,14 @@ class CompoundNode(ContainerNode[C]):
         """True if all children are basic; not cached because children may change"""
         return self.__class__ is CompoundNode and all(c.is_basic for c in self.children)
 
+    def copy(self) -> Self:
+        clone = super().copy()
+        try:
+            clone.__dict__['children'] = [c.copy() for c in self.__dict__['children']]
+        except KeyError:
+            pass
+        return clone
+
     def pformat(self, indentation: int = 0) -> str:
         indent = ' ' * indentation
         inside = indent + (' ' * 4)
@@ -308,6 +330,11 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
     @property
     def only_basic(self) -> bool:
         return False
+
+    def copy(self) -> MappingNode[KT, C]:
+        clone = super().copy()
+        clone.children = {_maybe_copy(k): _maybe_copy(v) for k, v in self.children.items()}
+        return clone
 
     def pformat(self, indentation: int = 0):
         indent = ' ' * indentation
@@ -372,6 +399,16 @@ class Tag(BasicNode, method='get_tags'):
             return not isinstance(value, Node) or value.is_basic
         return True
 
+    def copy(self) -> Tag:
+        clone = super().copy()
+        clone.name = self.name
+        clone.attrs = self.attrs
+        try:
+            clone.__dict__['value'] = _maybe_copy(self.__dict__['value'])
+        except KeyError:
+            pass
+        return clone
+
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         if value := self.value:
             yield from _find_all(value, node_cls, recurse, **kwargs)
@@ -433,6 +470,11 @@ class String(BasicNode):
         return bool(self.value)
 
     # endregion
+
+    def copy(self) -> String:
+        clone = super().copy()
+        clone.value = self.value
+        return clone
 
 
 class Link(BasicNode):
@@ -584,6 +626,19 @@ class Link(BasicNode):
 
     # endregion
 
+    def copy(self) -> Link:
+        clone = super().copy()
+        clone.title = self.title
+        clone.text = self.text
+        keys = ('show', 'source_site', 'special', 'to_file', 'interwiki', 'iw_key_title', 'url', 'client_and_title')
+        clone_dict, self_dict = clone.__dict__, self.__dict__
+        for key in keys:
+            try:
+                clone_dict[key] = self_dict[key]
+            except KeyError:
+                pass
+        return clone
+
 
 class ListEntry(CompoundNode[C]):
     def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, _value=None):
@@ -633,7 +688,7 @@ class ListEntry(CompoundNode[C]):
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
         return List(content, self.root, self.preserve_comments)
 
-    @property
+    @cached_property
     def children(self) -> list[ListEntry[C]]:
         sub_list = self.sub_list
         if not sub_list:
@@ -663,6 +718,16 @@ class ListEntry(CompoundNode[C]):
         else:
             self.raw = WikiText(f'{self.raw.string}\n{text}')
             self._children = f'{self._children}\n{text}'
+
+    def copy(self) -> ListEntry[C]:
+        clone = super().copy()
+        clone.value = self.value
+        clone._children = self._children
+        try:
+            clone.__dict__['sub_list'] = self.__dict__['sub_list'].copy()
+        except (KeyError, AttributeError):
+            pass
+        return clone
 
     def pformat(self, indentation: int = 0) -> str:
         indent = (' ' * indentation)
@@ -790,6 +855,12 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
             key, val = map(node_fn, (raw_key, raw_val))
             _add_kv(key, val)
 
+    def copy(self) -> List[ListEntry[C]]:
+        clone = super().copy()  # CompoundNode.copy handles copying children
+        clone._as_mapping = self._as_mapping
+        clone.start_char = self.start_char
+        return clone
+
 
 class TableSeparator:
     __slots__ = ('value',)
@@ -799,6 +870,17 @@ class TableSeparator:
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.value!r})>'
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.value == other.value
+
+    def __hash__(self) -> int:
+        return hash(self.value) ^ hash(self.__class__)
+
+    def copy(self) -> TableSeparator:
+        return self.__class__(self.value)
 
     def pformat(self, indentation: int = 0) -> str:
         indent = ' ' * indentation
@@ -875,7 +957,7 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         return headers
 
     @cached_property
-    def rows(self) -> list[Union[TableSeparator, MappingNode[C]]]:
+    def children(self) -> list[Union[TableSeparator, MappingNode[C]]]:
         def node_fn(cell):
             if not cell:
                 return cell
@@ -897,7 +979,8 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
                         continue
 
                 mapping = zip(headers, map(node_fn, row))
-                processed.append(MappingNode(row, self.root, self.preserve_comments, mapping))
+                raw = '\n'.join('' if cell is None else cell.string for cell in row)
+                processed.append(MappingNode(raw, self.root, self.preserve_comments, mapping))
         elif templates := self.raw.templates:
             for template in templates:
                 cells = [node_fn(arg) for arg in template.arguments if arg.positional]
@@ -906,8 +989,8 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         return processed
 
     @cached_property
-    def children(self) -> list[Union[TableSeparator, MappingNode[C]]]:
-        return self.rows
+    def rows(self) -> list[Union[TableSeparator, MappingNode[C]]]:
+        return self.children
 
     def strings(self, strip: bool = True) -> Iterator[str]:
         yield from _strings(self.caption, strip)
@@ -916,6 +999,17 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         for row in self.rows:
             for cell in row.values():
                 yield from _strings(cell, strip)
+
+    def copy(self) -> Table:
+        clone = super().copy()  # CompoundNode.copy handles copying children
+        clone.caption = self.caption
+        clone_dict, self_dict = clone.__dict__, self.__dict__
+        for key in ('_header_row_spans', '_raw_headers', '_str_headers', 'headers', 'rows'):
+            try:
+                clone_dict[key] = self_dict[key]
+            except KeyError:
+                pass
+        return clone
 
     def __rich_repr__(self):
         yield 'caption', self.caption, None
@@ -935,6 +1029,56 @@ class Template(BasicNode, attr='templates'):
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}({self.name!r}: {self.value!r})>'
+
+    def __getitem__(self, item):
+        if self.value is None:
+            raise TypeError('Cannot index a template with no value')
+        return self.value[item]
+
+    @cached_property
+    def handler(self) -> TemplateHandler:
+        from .handlers import TemplateHandler
+
+        return TemplateHandler.for_node(self)
+
+    @cached_property
+    def is_basic(self) -> bool:
+        return self.handler.is_basic
+
+    @cached_property
+    def value(self):
+        return self.handler.get_value()
+
+    def strings(self, strip: bool = True) -> Iterator[str]:
+        yield from _strings(self.value, strip)
+
+    @cached_property
+    def zipped(self) -> Optional[MappingNode]:
+        return self.handler.zip_value(self.value)
+
+    def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
+        if value := self.value:
+            if isinstance(value, Node):
+                yield from _find_all(value, node_cls, recurse, **kwargs)
+            else:
+                for node in value:
+                    yield from _find_all(node, node_cls, recurse, recurse, **kwargs)
+
+    def copy(self) -> Template:
+        clone = super().copy()
+        clone.name = self.name
+        clone.lc_name = self.lc_name
+        clone_dict, self_dict = clone.__dict__, self.__dict__
+        for key in ('handler', 'is_basic', 'zipped'):
+            try:
+                clone_dict[key] = self_dict[key]
+            except KeyError:
+                pass
+        try:
+            clone_dict['value'] = _maybe_copy(self_dict['value'])
+        except KeyError:
+            pass
+        return clone
 
     def pformat(self, indentation: int = 0, max_width: int = None) -> str:
         indent = ' ' * indentation
@@ -963,46 +1107,11 @@ class Template(BasicNode, attr='templates'):
         yield self.name
         yield self.value
 
-    @cached_property
-    def handler(self) -> TemplateHandler:
-        from .handlers import TemplateHandler
-
-        return TemplateHandler.for_node(self)
-
-    @cached_property
-    def is_basic(self) -> bool:
-        return self.handler.is_basic
-
-    @cached_property
-    def value(self):
-        return self.handler.get_value()
-
-    def strings(self, strip: bool = True) -> Iterator[str]:
-        yield from _strings(self.value, strip)
-
-    @cached_property
-    def zipped(self) -> Optional[MappingNode]:
-        return self.handler.zip_value(self.value)
-
-    def __getitem__(self, item):
-        if self.value is None:
-            raise TypeError('Cannot index a template with no value')
-        return self.value[item]
-
-    def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
-        if value := self.value:
-            if isinstance(value, Node):
-                yield from _find_all(value, node_cls, recurse, **kwargs)
-            else:
-                for node in value:
-                    yield from _find_all(node, node_cls, recurse, recurse, **kwargs)
-
 
 class Root(Node):
     site: OptStr
     _interwiki_map: Optional[Mapping[str, str]]
 
-    # Children = sections
     def __init__(
         self,
         page_text: Raw,
@@ -1011,7 +1120,7 @@ class Root(Node):
         interwiki_map: Mapping[str, str] = None,
     ):
         if isinstance(page_text, str):
-            page_text = WikiText(page_text.replace('\xa0', ' ').replace('\u200b', ''))
+            page_text = WikiText(page_text.replace('\xa0', ' ').replace('\u200b', ''))  # nbsp, 0-width space
         super().__init__(page_text, None, preserve_comments)
         self.site = site
         self._interwiki_map = interwiki_map
@@ -1049,7 +1158,7 @@ class Root(Node):
 
     @cached_property
     def sections(self) -> Section:
-        sections: Iterator[_Section] = iter(self.raw.sections)
+        sections: Iterator[_Section] = iter(self.raw.get_sections())
         root = Section(next(sections), self, self.preserve_comments)
         last_by_level = {0: root}
         last_level = 0
@@ -1064,6 +1173,16 @@ class Root(Node):
             parent._add_sub_section(section.title, section)
             last_by_level[level] = section
         return root
+
+    def copy(self) -> Self:
+        clone = super().copy()
+        clone.site = self.site
+        clone._interwiki_map = self._interwiki_map
+        try:
+            clone.__dict__['sections'] = self.__dict__['sections'].copy()
+        except (KeyError, AttributeError):
+            pass
+        return clone
 
 
 class Section(ContainerNode['Section'], method='get_sections'):
@@ -1453,6 +1572,23 @@ class Section(ContainerNode['Section'], method='get_sections'):
 
     # endregion
 
+    def copy(self) -> Section:
+        clone = super().copy()
+        clone.title = self.title
+        clone.level = self.level
+        clone.parent = self.parent
+        clone.children = {}
+        clone._subsections = []
+        clone_dict, self_dict = clone.__dict__, self.__dict__
+        for key in ('number', 'toc_number', 'content'):
+            try:
+                clone_dict[key] = self_dict[key]
+            except KeyError:
+                pass
+        for section in self._subsections:
+            clone._add_sub_section(section.title, section.copy())
+        return clone
+
     # region Printing / Formatting Methods
 
     def pformat(self, mode: str = 'reprs', indent: int = 0, recurse: bool = True) -> str:
@@ -1540,6 +1676,13 @@ def _strings(value, strip: bool = True) -> Iterator[str]:
         except TypeError:
             value = str(value)
             yield value.strip() if strip else value
+
+
+def _maybe_copy(obj: T) -> T:
+    try:
+        return obj.copy()
+    except AttributeError:
+        return obj
 
 
 def iw_community_link_match(title: str) -> Optional[Match]:

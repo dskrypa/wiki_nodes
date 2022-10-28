@@ -160,6 +160,17 @@ class NodeParsingTest(WikiNodesTest):
         expected = "<CompoundNode[\n    <String('foo')>,\n    <String('bar')>\n]>"
         self.assertEqual(expected, node.pformat())
 
+    def test_compound_copy_with_children(self):
+        node = CompoundNode.from_nodes([String('foo'), String('bar')])
+        clone = node.copy()
+        self.assertEqual(node, clone)
+        self.assertIsNot(node[0], clone[0])
+        self.assertIsNot(node[1], clone[1])
+
+    def test_compound_copy_no_children(self):
+        node = CompoundNode('test')
+        self.assertEqual(node, node.copy())
+
     # endregion
 
     # region MappingNode
@@ -189,6 +200,12 @@ class NodeParsingTest(WikiNodesTest):
     def test_mapping_get_case_insensitive_alt_ket_type(self):
         self.assertIs(None, MappingNode('', content={'a': 1, 1: 1}).get('b', case_sensitive=False))
 
+    def test_mapping_copy(self):
+        node = MappingNode('', content={'a': String('foo'), 'b': String('bar')})
+        clone = node.copy()
+        self.assertEqual(node, clone)
+        self.assertIsNot(node['a'], clone['a'])
+
     # endregion
 
     # region Tag
@@ -217,6 +234,12 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual('small', tag['spacing'])
         self.assertEqual('small', tag.get('spacing'))
         self.assertIs(None, tag.get('bar'))
+
+    def test_tag_copy(self):
+        tag = Tag('<b>[[foo]]</b>')
+        clone = tag.copy()
+        self.assertEqual(tag, clone)
+        self.assertIsNot(tag.value, clone.value)
 
     # endregion
 
@@ -253,6 +276,10 @@ class NodeParsingTest(WikiNodesTest):
     def test_bad_link(self):
         with self.assertRaisesRegex(ValueError, 'Link init attempted with non-link'):
             Link('{{foo}}')
+
+    def test_link_normalize_index(self):
+        link = Link.normalize_raw('[[a]] [[b]]', 1)
+        self.assertEqual('b', link.title)
 
     def test_link_set(self):
         foo, bar = Link('[[foo]]'), Link('[[bar]]')
@@ -301,6 +328,12 @@ class NodeParsingTest(WikiNodesTest):
         self.assertListEqual(['bar'], list(Link('[[foo|bar]]').strings()))
         self.assertListEqual(['foo'], list(Link('[[foo]]').strings()))
         self.assertListEqual([], list(Link('[[ ]]').strings()))
+
+    def test_link_copy(self):
+        link = Link('[[foo]]', root=Mock(site='wiki.bar.com'))
+        clone = link.copy()
+        self.assertEqual(link, clone)
+        self.assertEqual(link.source_site, clone.source_site)
 
     # endregion
 
@@ -437,6 +470,12 @@ class NodeParsingTest(WikiNodesTest):
     def test_list_strings(self):
         self.assertListEqual(['foo', 'bar', 'baz'], list(List('* foo\n** bar\n** baz\n').strings()))
 
+    def test_list_copy(self):
+        node = List('* foo\n** bar\n** baz\n')
+        _ = node.children  # populate the cached property
+        clone = node.copy()
+        self.assertEqual(node, clone)
+
     # endregion
 
     # region Table
@@ -446,6 +485,9 @@ class NodeParsingTest(WikiNodesTest):
         self.assert_equal("<TableSeparator('foo')>", repr(ts))
         self.assert_equal("<TableSeparator['foo']>", ts.pformat())
         self.assertListEqual(['foo'], list(ts.strings()))
+        self.assertEqual(ts, ts.copy())
+        self.assertEqual(1, len({ts, ts, ts}))
+        self.assertNotEqual(ts, 'foo')
 
     def test_table_basics(self):
         table = Table('{|\n! a !! [[b]] !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
@@ -474,6 +516,10 @@ class NodeParsingTest(WikiNodesTest):
         table = Table('{|\n! a !! [[b]] !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
         expected = ['a', 'b', 'c', '1', '2', '3', '4', '5', '6']
         self.assertListEqual(expected, list(table.strings()))
+
+    def test_table_copy(self):
+        table = Table('{|\n! a !! [[b]] !! c\n|-\n| 1 || 2 || 3\n|-\n| 4 || 5 || 6\n|}')
+        self.assertEqual(table, table.copy())
 
     # endregion
 
@@ -507,6 +553,12 @@ class NodeParsingTest(WikiNodesTest):
         expected = f"<Template['test'][[\n    CompoundNode(\n{compound}\n    ),\n    <String('baz')>\n]]>"
         self.assert_strings_equal(expected, tmpl.pformat(max_width=10))
 
+    def test_tmpl_copy(self):
+        tmpl = Template('{{small|[[foo]]}}')
+        clone = tmpl.copy()
+        self.assertEqual(tmpl, clone)
+        self.assertIsNot(tmpl.value, clone.value)
+
     # endregion
 
     # region Root
@@ -525,7 +577,7 @@ class NodeParsingTest(WikiNodesTest):
     # region Section
 
     def test_sections(self):
-        node = Root('==one==\n[[test]]\n==two==\n{{n/a}}\n===two a===', site='en.wikipedia.org')
+        node = Root('==one==\n[[test]]\n==two==\n{{n/a}}\n===two a===', site=SITE)
         root_section = node.sections
         self.assertEqual(2, root_section.depth)
         self.assertEqual(2, len(root_section.children))
@@ -617,6 +669,15 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual("<Section[2: foo]>\n    <String('bar')>", Section('==foo==\nbar', Mock()).pformat('content'))
         section = Root('==foo==\n===bar===\n', Mock()).sections
         self.assertEqual('\n    ==foo==\n        ===bar===', section.pformat('headers'))
+
+    def test_section_copy(self):
+        node = Root('==one==\n[[test]]\n==two==\n{{n/a}}\n===two a===', site=SITE)
+        _ = node.sections  # populate the cached property
+        clone = node.copy()
+        self.assertEqual(node, clone)
+        self.assertIsNot(node['one'], clone['one'])
+        self.assertIsNot(node['one'].parent, clone['one'].parent)
+        self.assertIs(clone['one'].parent, clone.sections)
 
     # endregion
 
