@@ -198,28 +198,27 @@ class cached_property(Generic[T]):  # noqa
 
 
 class IntervalCoverageMap(UserDict):
-    def __setitem__(self, span, value):
+    def __setitem__(self, span: tuple[int, int], value: T):
         try:
-            a, b = map(int, span)
+            a, b = span
+            a = int(a)
+            b = int(b)
         except (TypeError, ValueError) as e:
             raise ValueError(f'Expected a pair of ints; found {span}') from e
         if a >= b:
             raise ValueError(f'Expected a pair of ints where the first value is lower than the second; found {span}')
 
-        can_add = True
         to_remove = []
         for (x, y) in self.data:
             if a <= x and b >= y:
                 to_remove.append((x, y))
             elif x <= a < b <= y or x <= a < y <= b or a <= x < b <= y:
-                can_add = False
-                break
+                return  # the new span cannot be added
 
-        if can_add:
-            if to_remove:
-                for pair in to_remove:
-                    del self.data[pair]
-            self.data[(a, b)] = value
+        if to_remove:
+            for pair in to_remove:
+                del self.data[pair]
+        self.data[(a, b)] = value
 
 
 def short_repr(text) -> str:
