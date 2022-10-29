@@ -1409,7 +1409,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
         if merge_maps:
             content = self._process_merge_maps(content)
         if fix_dl_key_as_header:
-            content = self._process_fix_dl_key_as_header(content)
+            content = dl_keys_to_subsections(self, False)[1]
 
         return content
 
@@ -1530,42 +1530,6 @@ class Section(ContainerNode['Section'], method='get_sections'):
                 last_map = None
 
         if did_merge:
-            content.children.clear()
-            content.children.extend(children)
-
-        return content
-
-    def _process_fix_dl_key_as_header(self, content: CompoundNode[N]) -> CompoundNode[N]:
-        children = []
-        did_fix = False
-        title = None  # type: Optional[str]
-        subsection_nodes = []
-        for child in content:
-            new_title = None
-            if isinstance(child, List) and len(child) == 1 and child.raw.string.startswith(';'):
-                title_node = child.children[0].value
-                if isinstance(title_node, String):
-                    new_title = title_node.value
-                elif title_node.__class__ is CompoundNode and title_node.only_basic:  # noqa
-                    new_title = ' '.join(str(n.show if isinstance(n, Link) else n.value) for n in title_node)  # noqa
-
-            if new_title:
-                if title:
-                    did_fix = True
-                    self._add_pseudo_sub_section(title, subsection_nodes)
-                    subsection_nodes = []
-
-                title = new_title
-            elif title:
-                subsection_nodes.append(child)
-            else:
-                children.append(child)
-
-        if title:
-            did_fix = True
-            self._add_pseudo_sub_section(title, subsection_nodes)
-
-        if did_fix:
             content.children.clear()
             content.children.extend(children)
 
@@ -1694,3 +1658,4 @@ def _maybe_copy(obj: T) -> T:
 
 # Down here due to circular dependency
 from .parsing import as_node  # noqa
+from .transformers import dl_keys_to_subsections  # noqa

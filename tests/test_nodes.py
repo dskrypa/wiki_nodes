@@ -633,6 +633,7 @@ class NodeParsingTest(WikiNodesTest):
         self.assertEqual('bar', section.find_section('Bar', case_sensitive=False).title)
         self.assertIs(None, section.find('baz', None))
 
+    # TODO: Remove once all processed() functionality has been moved
     def test_section_fixed_dl_subsections(self):
         original = (
             '==Track list==\n'
