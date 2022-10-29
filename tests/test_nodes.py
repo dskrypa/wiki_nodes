@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from textwrap import dedent
 from unittest import main
-from unittest.mock import patch, Mock
+from unittest.mock import Mock
 
 from wikitextparser import WikiText
 
@@ -437,31 +437,6 @@ class NodeParsingTest(WikiNodesTest):
         expected = {'Language': 'Korean, English', 'Release Date': '2015-Apr-01', 'Number of Tracks': '2'}
         self.assert_equal(expected, node.as_dict(multiline=False))
 
-    def test_processed_dict(self):
-        content = dedent("""
-        ; Artist
-        : [[Girls' Generation]]
-        ; Album
-        : MR. TAXI
-        ; Released
-        : 2011.12.14
-        ; Tracklist
-        # [[Mr. Taxi (song)|MR. TAXI]]
-        # [[The Boys (song)|The Boys]]
-        # [[Telepathy (Girls' Generation)|Telepathy]] (텔레파시)
-        """).strip()
-        expected = {
-            'Artist': ListEntry("; Artist\n: [[Girls' Generation]]"),
-            'Album': ListEntry('; Album\n: MR. TAXI'),
-            'Released': ListEntry('; Released\n: 2011.12.14'),
-            'Tracklist': List('\n'.join(content.splitlines()[-3:])),
-        }
-        root = Root(content)
-        self.assert_equal(expected, root.sections.processed()[0].children)
-        expected = ['Artist', "Girls' Generation", 'Album', 'MR. TAXI', 'Released', '2011.12.14', 'Tracklist']
-        expected += ['MR. TAXI', 'The Boys', 'Telepathy', '(텔레파시)']
-        self.assert_equal(expected, list(root.strings()))
-
     def test_list_iter_flat(self):
         # expected = [ListEntry('* foo'), ListEntry('** a'), ListEntry('** b')]
         expected = ['foo', 'a', 'b', 'c']
@@ -597,18 +572,10 @@ class NodeParsingTest(WikiNodesTest):
         self.assertIn('h', root['e'])
         self.assertIn('i', root['e']['h'])
 
-    def test_section_processed_all_disabled(self):
-        section = Section("==foo==\n'''foo''' [[bar]]", Mock(site='foo', title='bar'))
-        content = section.content
-        self.assertEqual(content, section.processed(False, False, False, False, False))
-
     def test_section_strings(self):
         self.assertListEqual(['foo', 'foo', 'bar'], list(Section("==foo==\n'''foo''' [[bar]]", Mock()).strings()))
         node = Root('==a==\n===b===\n==c==\n====d====\n==e==\n===f===\n====g====\n===h===\n====i====\n')
         self.assertListEqual(list('abcdefghi'), list(node.strings()))
-
-    def test_section_processed_nothing(self):
-        self.assertIs(None, Section("==foo==\n", Mock(site='foo', title='bar')).processed())
 
     def test_section_no_subsections_bool_true(self):
         self.assertTrue(Section('==foo==', Mock()))
@@ -632,24 +599,6 @@ class NodeParsingTest(WikiNodesTest):
         section = Root('==foo==\n===bar===\n', Mock()).sections
         self.assertEqual('bar', section.find_section('Bar', case_sensitive=False).title)
         self.assertIs(None, section.find('baz', None))
-
-    # TODO: Remove once all processed() functionality has been moved
-    def test_section_fixed_dl_subsections(self):
-        original = (
-            '==Track list==\n'
-            ';Digital\n#"foo abc" - 2:54\n#"bar def" - 3:12\n#"baz ghi" - 3:47\n'
-            ';Physical\n#"foo rst" - 3:18\n#"bar uvw" - 2:46\n#"baz xyz" - 2:29\n'
-        )
-        section = Section(original, Mock(site='foo', title='bar'))
-        self.assertEqual(0, len(section.children))
-        content = section.processed(False, False, False, False, fix_dl_key_as_header=True)
-        self.assertEqual(0, len(content))
-        self.assertEqual(2, len(section.children))
-        for name in ('Digital', 'Physical'):
-            with self.subTest(name=name):
-                sub_section = section.children[name]
-                self.assertEqual(name, sub_section.title)
-                self.assertEqual(3, len(sub_section.content))
 
     def test_section_pprint(self):
         with RedirectStreams() as streams:

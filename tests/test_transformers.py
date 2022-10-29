@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
+from textwrap import dedent
 from unittest import main
 from unittest.mock import Mock
 
-from wiki_nodes.nodes import Section
+from wiki_nodes.nodes import Section, Root, List, ListEntry
 from wiki_nodes.nodes.transformers import transform_section, dl_keys_to_subsections, convert_lists_to_maps
 from wiki_nodes.nodes.transformers import convert_hanging_dl_lists, fix_nested_dl_ul_ol, merge_map_chain
 from wiki_nodes.testing import WikiNodesTest
@@ -11,12 +12,10 @@ from wiki_nodes.testing import WikiNodesTest
 
 class SectionTransformerTest(WikiNodesTest):
     def test_skips(self):
-        # fmt: off
         funcs = (
             transform_section, dl_keys_to_subsections, convert_lists_to_maps,
             convert_hanging_dl_lists, fix_nested_dl_ul_ol, merge_map_chain
         )
-        # fmt: on
         original = Section('==foo==\nbar', Mock())
         for func in funcs:
             section, content = func(original)
@@ -78,6 +77,34 @@ class SectionTransformerTest(WikiNodesTest):
         self.assertEqual('Foo bar', section._subsections[0].title)
 
     # endregion
+
+    def test_full_transform_section(self):
+        content = dedent("""
+        ; Artist
+        : [[Girls' Generation]]
+        ; Album
+        : MR. TAXI
+        ; Released
+        : 2011.12.14
+        ; Tracklist
+        # [[Mr. Taxi (song)|MR. TAXI]]
+        # [[The Boys (song)|The Boys]]
+        # [[Telepathy (Girls' Generation)|Telepathy]] (텔레파시)
+        """).strip()
+        expected = {
+            'Artist': ListEntry("; Artist\n: [[Girls' Generation]]"),
+            'Album': ListEntry('; Album\n: MR. TAXI'),
+            'Released': ListEntry('; Released\n: 2011.12.14'),
+            'Tracklist': List('\n'.join(content.splitlines()[-3:])),
+        }
+        root = Root(content)
+        self.assert_equal(expected, transform_section(root.sections)[1][0].children)
+
+        expected = [
+            'Artist', "Girls' Generation", 'Album', 'MR. TAXI', 'Released', '2011.12.14', 'Tracklist',
+            'MR. TAXI', 'The Boys', 'Telepathy', '(텔레파시)'
+        ]
+        self.assert_equal(expected, list(root.strings()))
 
 
 if __name__ == '__main__':

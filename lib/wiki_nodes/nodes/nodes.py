@@ -13,8 +13,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
-from copy import copy
-from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Match, Generic
+from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Generic
 
 try:
     from typing import Self
@@ -155,7 +154,7 @@ class Node(ClearableCachedPropertyMixin):
             self.raw_pprint(mode == 'raw-pretty')
         elif mode == 'headers':  # Only implemented by Section
             return
-        elif mode in {'reprs', 'content', 'processed'}:
+        elif mode in {'reprs', 'content'}:
             self._pprint(indent)
 
         if recurse:
@@ -1378,41 +1377,6 @@ class Section(ContainerNode['Section'], method='get_sections'):
         #     log.debug(f'Using original section 0 content for {self.root}')
         return node
 
-    def processed(
-        self,
-        convert_maps: bool = True,
-        fix_dl_last_none: bool = True,
-        fix_nested_dl_ul_ol: bool = True,
-        merge_maps: bool = True,
-        fix_dl_key_as_header: bool = True,
-    ) -> Optional[AnyNode]:
-        """
-        The content of this section, processed to work around various issues.
-
-        :param convert_maps: Convert List objects to MappingNode objects, if possible
-        :param fix_dl_last_none: If a ul/ol follows a definition list on the top level of this section's content,
-          and the last value in the definition list is None, update that value to be the list that follows
-        :param fix_nested_dl_ul_ol: When a dl contains a value that is a ul, and that ul contains a nested ol, fix
-          the lists so that they are properly nested
-        :param merge_maps: Merge consecutive MappingNode objects
-        :param fix_dl_key_as_header: Some pages have sub-sections with ``;`` used to indicate a section header
-          instead of surrounding the header with ``=``
-        :return: CompoundNode
-        """
-        content = copy(self.content)
-        if not isinstance(content, CompoundNode):
-            return content
-
-        args = (convert_maps, fix_dl_last_none, fix_nested_dl_ul_ol, merge_maps, fix_dl_key_as_header)
-        if all(args):
-            content = transform_section(self, False)[1]
-        elif fix_dl_key_as_header:
-            content = dl_keys_to_subsections(self, False)[1]
-        elif any(args):
-            raise RuntimeError('Unsupported processed() arg combo')
-
-        return content
-
     # endregion
 
     def copy(self) -> Section:
@@ -1462,14 +1426,13 @@ class Section(ContainerNode['Section'], method='get_sections'):
             indent += 4
             if mode == 'headers':
                 yield f'{indent_str}{self._formatted_title()}'
-            elif mode in {'reprs', 'content', 'processed'}:
+            elif mode in {'reprs', 'content'}:
                 yield f'{indent_str}{self}'
                 if mode != 'reprs':
-                    content = self.content if mode == 'content' else self.processed()
-                    if content is None:
+                    if self.content is None:
                         yield 'None'
                     else:
-                        yield content.pformat(indent)
+                        yield self.content.pformat(indent)
 
         if recurse:
             for child in self.children.values():

@@ -36,7 +36,7 @@ class WikiPageViewer(Command, description='View a Wiki page', option_name_mode='
 
 
 class View(WikiPageViewer, help='View a wiki page'):
-    MODES = ('raw', 'raw-pretty', 'headers', 'reprs', 'content', 'processed', 'toc')
+    MODES = ('raw', 'raw-pretty', 'headers', 'reprs', 'content', 'toc')
     url = Positional(help='A Wiki page URL')
     with ParamGroup('Output Options'):
         mode = Option('-m', choices=MODES, default='raw', help='Page display mode')
@@ -61,10 +61,10 @@ class View(WikiPageViewer, help='View a wiki page'):
         if self.index:
             if len(self.index) > 1:
                 index = slice(*self.index)
-                nodes = [n for node in nodes for n in node.processed()[index]]
+                nodes = [n for node in nodes for n in node.content[index]]
             else:
                 index = self.index[0]
-                nodes = [node.processed()[index] for node in nodes]
+                nodes = [node.content[index] for node in nodes]
 
         if node_type := self.type:
             nodes = [n for node in nodes for n in node.find_all(node_type, recurse=self.recursive)]
