@@ -478,6 +478,7 @@ class String(BasicNode):
 
 
 class Link(BasicNode):
+    _iw_community_match = re.compile(r'^(w:c:[^:]+):(.+)$').match
     raw: _Link
     title: str
     text: str
@@ -582,7 +583,7 @@ class Link(BasicNode):
     @cached_property
     def iw_key_title(self) -> tuple[str, str]:
         if (root := self.root) and ':' in (title := self.title):
-            if m := iw_community_link_match(title):
+            if m := self._iw_community_match(title):
                 return tuple(m.groups())  # noqa
             elif iw_map := root._interwiki_map:
                 prefix, iw_title = title.split(':', maxsplit=1)
@@ -1635,6 +1636,9 @@ class Section(ContainerNode['Section'], method='get_sections'):
     # endregion
 
 
+# region Helper functions
+
+
 def _print(*args, _print_func=print, **kwargs):
     try:
         _print_func(*args, **kwargs)  # Note: print is passed as an arg to allow it to be testable
@@ -1685,12 +1689,7 @@ def _maybe_copy(obj: T) -> T:
         return obj
 
 
-def iw_community_link_match(title: str) -> Optional[Match]:
-    try:
-        match = iw_community_link_match._match
-    except AttributeError:
-        match = iw_community_link_match._match = re.compile(r'^(w:c:[^:]+):(.+)$').match
-    return match(title)
+# endregion
 
 
 # Down here due to circular dependency
