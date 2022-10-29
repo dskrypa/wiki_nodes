@@ -28,6 +28,7 @@ from wikitextparser import (
 
 from ..exceptions import NoLinkSite, NoLinkTarget
 from ..utils import strip_style, ClearableCachedPropertyMixin, cached_property, rich_repr
+from .enums import ListType
 
 if TYPE_CHECKING:
     from ..http import MediaWikiClient
@@ -763,6 +764,7 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
         super().__init__(raw, root, preserve_comments)
         self._as_mapping = None
         self.start_char = self.raw.string[0]
+        self.type = ListType(self.start_char)
 
     @cached_property
     def children(self) -> list[ListEntry[C]]:
@@ -860,6 +862,7 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
         clone = super().copy()  # CompoundNode.copy handles copying children
         clone._as_mapping = self._as_mapping
         clone.start_char = self.start_char
+        clone.type = self.type
         return clone
 
 
@@ -1400,138 +1403,13 @@ class Section(ContainerNode['Section'], method='get_sections'):
         if not isinstance(content, CompoundNode):
             return content
 
-        if convert_maps:
-            content = self._process_convert_maps(content)
-        if fix_dl_last_none:
-            content = self._process_fix_dl_last_none(content)
-        if fix_nested_dl_ul_ol:
-            content = self._process_fix_nested_dl_ul_ol(content)
-        if merge_maps:
-            content = self._process_merge_maps(content)
-        if fix_dl_key_as_header:
+        args = (convert_maps, fix_dl_last_none, fix_nested_dl_ul_ol, merge_maps, fix_dl_key_as_header)
+        if all(args):
+            content = transform_section(self, False)[1]
+        elif fix_dl_key_as_header:
             content = dl_keys_to_subsections(self, False)[1]
-
-        return content
-
-    def _process_convert_maps(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
-        children = []
-        did_convert = False
-        last = len(content) - 1
-        for i, child in enumerate(content):
-            if isinstance(child, List) and (len(child) > 1 or (i < last and isinstance(content[i + 1], List))):
-                try:
-                    as_map = child.as_mapping()
-                except Exception:  # noqa
-                    # log.debug(f'Was not a mapping: {short_repr(child)}', exc_info=True)
-                    pass
-                else:
-                    if as_map:
-                        did_convert = True
-                        child = as_map
-                    #     log.debug(f'Successfully converted to mapping: {short_repr(child)}')
-                    # else:
-                    #     log.debug(f'Was not a mapping: {short_repr(child)}')
-
-            children.append(child)
-
-        if did_convert:
-            content.children.clear()
-            content.children.extend(children)
-
-        return content
-
-    def _process_fix_dl_last_none(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
-        children = []
-        did_fix = False
-        last_map, last_key = None, None
-        for child in content:
-            if isinstance(child, List):
-                if last_map:
-                    did_fix = True
-                    last_map[last_key] = child
-                    last_map, last_key = None, None
-                else:
-                    children.append(child)
-            elif isinstance(child, MappingNode):
-                children.append(child)
-                try:
-                    key, val = list(child.items())[-1]
-                except IndexError:
-                    last_map, last_key = None, None
-                else:
-                    if val is None:
-                        last_map, last_key = child, key
-                    else:
-                        last_map, last_key = None, None
-            else:
-                children.append(child)
-                last_map, last_key = None, None
-
-        if did_fix:
-            content.children.clear()
-            content.children.extend(children)
-
-        return content
-
-    def _process_fix_nested_dl_ul_ol(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
-        children = []
-        did_fix = False
-        last_list, last_entry = None, None
-        for child in content:
-            if isinstance(child, MappingNode):
-                children.append(child)
-                try:
-                    key, val = list(child.items())[-1]
-                except IndexError:
-                    last_list, last_entry = None, None
-                else:
-                    if isinstance(val, List) and val.start_char == '*':
-                        last_list = val
-                        last_entry = val[-1]
-                    else:
-                        last_list, last_entry = None, None
-            elif isinstance(child, List):
-                if last_list and child.start_char == '#':
-                    did_fix = True
-                    last_entry.extend(child)
-                elif last_list and child.start_char == '*':
-                    did_fix = True
-                    last_list.extend(child)
-                    last_list = child
-                    last_entry = child[-1]
-                else:
-                    children.append(child)
-                    last_list, last_entry = None, None
-            else:
-                children.append(child)
-                last_list, last_entry = None, None
-
-        if did_fix:
-            content.children.clear()
-            content.children.extend(children)
-
-        return content
-
-    def _process_merge_maps(self, content: CompoundNode[N]) -> CompoundNode[N]:  # noqa
-        children = []
-        did_merge = False
-        last_map = None
-        for child in content:
-            if isinstance(child, MappingNode):
-                if last_map:
-                    last_map.update(child)
-                    did_merge = True
-                else:
-                    children.append(child)
-
-                last_map = child
-            else:
-                children.append(child)
-                last_map = None
-
-        if did_merge:
-            content.children.clear()
-            content.children.extend(children)
+        elif any(args):
+            raise RuntimeError('Unsupported processed() arg combo')
 
         return content
 
@@ -1658,4 +1536,4 @@ def _maybe_copy(obj: T) -> T:
 
 # Down here due to circular dependency
 from .parsing import as_node  # noqa
-from .transformers import dl_keys_to_subsections  # noqa
+from .transformers import dl_keys_to_subsections, transform_section  # noqa
