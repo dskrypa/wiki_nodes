@@ -209,7 +209,7 @@ class IntervalCoverageMap(UserDict):
             raise ValueError(f'Expected a pair of ints where the first value is lower than the second; found {span}')
 
         to_remove = []
-        for (x, y) in self.data:
+        for x, y in self.data:
             if a <= x and b >= y:
                 to_remove.append((x, y))
             elif x <= a < b <= y or x <= a < y <= b or a <= x < b <= y:

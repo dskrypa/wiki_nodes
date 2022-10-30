@@ -2,7 +2,6 @@
 
 from functools import lru_cache
 from pathlib import Path
-from textwrap import dedent
 from unittest import main
 from unittest.mock import Mock
 
@@ -190,12 +189,6 @@ class NodeParsingTest(WikiNodesTest):
         node = MappingNode('', content={'a': String('foo'), 'b': String('bar')})
         self.assertEqual('bar', node.find_one(String, value='bar'))
         self.assertIs(None, node.find_one(Link))
-
-    def test_mapping_get_case_insensitive(self):
-        page = get_page('d_addicts_our_blues.wiki', 'Our Blues', 'wiki.d-addicts.com')
-        details = page.sections.find_section('Details').content.as_mapping()
-        self.assertIs(None, details.get('Original Soundtrack'))
-        self.assertIsInstance(details.get('Original Soundtrack', case_sensitive=False), Link)
 
     def test_mapping_get_case_insensitive_alt_ket_type(self):
         self.assertIs(None, MappingNode('', content={'a': 1, 1: 1}).get('b', case_sensitive=False))
@@ -470,17 +463,6 @@ class NodeParsingTest(WikiNodesTest):
         expected = [{'a': '1', 'b': '2', 'c': '3'}, {'a': '4', 'b': '5', 'c': '6'}]
         self.assert_equal(expected, [row.children for row in table.children])
 
-    def test_multi_line_keys(self):
-        page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
-        table = page.find_section('Charts').find_one(Table)
-        self.assertListEqual(['Chart (2021)', 'Peak position'], table.headers)
-
-    def test_release_history(self):
-        page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
-        table = page.find_section('Release History', case_sensitive=False).find_one(Table)
-        self.assertListEqual(['Region', 'Date', 'Label', 'Distributor', 'Format(s)'], table.headers)
-        self.assertEqual(4, len(table.children))
-
     def test_table_no_rows(self):
         self.assertEqual([], Table('{|\n! a !! b !! c\n|}').rows)
 
@@ -630,6 +612,25 @@ class NodeParsingTest(WikiNodesTest):
         self.assertIs(clone['one'].parent, clone.sections)
 
     # endregion
+
+
+class PageExcerptParsingTest(WikiNodesTest):
+    def test_mapping_get_case_insensitive(self):
+        page = get_page('d_addicts_our_blues.wiki', 'Our Blues', 'wiki.d-addicts.com')
+        details = page.sections.find_section('Details').content.as_mapping()
+        self.assertIs(None, details.get('Original Soundtrack'))
+        self.assertIsInstance(details.get('Original Soundtrack', case_sensitive=False), Link)
+
+    def test_multi_line_keys(self):
+        page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
+        table = page.find_section('Charts').find_one(Table)
+        self.assertListEqual(['Chart (2021)', 'Peak position'], table.headers)
+
+    def test_release_history(self):
+        page = get_page('wikipedia_no_gods_no_masters.wiki', 'No Gods No Masters (Garbage album)')
+        table = page.find_section('Release History', case_sensitive=False).find_one(Table)
+        self.assertListEqual(['Region', 'Date', 'Label', 'Distributor', 'Format(s)'], table.headers)
+        self.assertEqual(4, len(table.children))
 
 
 if __name__ == '__main__':

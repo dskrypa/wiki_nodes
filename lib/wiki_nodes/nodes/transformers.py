@@ -5,12 +5,13 @@ Utilities for transforming Nodes into forms that are easier to process.
 from __future__ import annotations
 
 from copy import copy
-from typing import Optional
+from typing import Optional, Iterator
 
 from .enums import ListType
 from .nodes import Section, List, CompoundNode, MappingNode, AnyNode
 
 __all__ = [
+    'dl_key_content_pairs',
     'transform_section',
     'dl_keys_to_subsections',
     'convert_lists_to_maps',
@@ -20,6 +21,29 @@ __all__ = [
 ]
 
 TransformedSection = tuple[Section, CompoundNode | AnyNode | None]
+
+
+# region CompoundNode Transformers
+
+
+def dl_key_content_pairs(node: CompoundNode) -> Iterator[tuple[Optional[AnyNode], List]]:
+    children = []
+    title: Optional[AnyNode] = None
+    for child in node:
+        if isinstance(child, List) and len(child) == 1 and child.type == ListType.DL:
+            if children:
+                yield title, children
+                children = []
+
+            title = child.children[0].value
+        else:
+            children.append(child)
+
+    if children:
+        yield title, children
+
+
+# endregion
 
 
 # region Section Transformers
@@ -67,29 +91,14 @@ def dl_keys_to_subsections(section: Section, clone: bool = True, content: Compou
 
     children = []
     did_fix = False
-    title: Optional[str] = None
-    subsection_nodes = []
-    for child in content:
-        new_title = None
-        # if isinstance(child, List) and len(child) == 1 and child.raw.string.startswith(';'):
-        if isinstance(child, List) and len(child) == 1 and child.type == ListType.DL:
-            new_title = ' '.join(child.children[0].value.strings())
-
-        if new_title:
-            if title:
-                did_fix = True
-                section._add_pseudo_sub_section(title, subsection_nodes)
-                subsection_nodes = []
-
-            title = new_title
-        elif title:
-            subsection_nodes.append(child)
+    for title_node, subsection_nodes in dl_key_content_pairs(content):
+        try:
+            title = ' '.join(title_node.strings())
+        except AttributeError:  # title_node was None
+            children = subsection_nodes
         else:
-            children.append(child)
-
-    if title:
-        did_fix = True
-        section._add_pseudo_sub_section(title, subsection_nodes)
+            did_fix = True
+            section._add_pseudo_sub_section(title, subsection_nodes)
 
     if did_fix:
         content.children.clear()

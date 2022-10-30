@@ -4,9 +4,9 @@ from textwrap import dedent
 from unittest import main
 from unittest.mock import Mock
 
-from wiki_nodes.nodes import Section, Root, List, ListEntry
-from wiki_nodes.nodes.transformers import transform_section, dl_keys_to_subsections, convert_lists_to_maps
-from wiki_nodes.nodes.transformers import convert_hanging_dl_lists, fix_nested_dl_ul_ol, merge_map_chain
+from wiki_nodes.nodes import Section, Root, List, ListEntry, CompoundNode
+from wiki_nodes.nodes.transformers import dl_key_content_pairs, transform_section, merge_map_chain, fix_nested_dl_ul_ol
+from wiki_nodes.nodes.transformers import dl_keys_to_subsections, convert_hanging_dl_lists, convert_lists_to_maps
 from wiki_nodes.testing import WikiNodesTest
 
 
@@ -20,6 +20,10 @@ class SectionTransformerTest(WikiNodesTest):
         for func in funcs:
             section, content = func(original)
             self.assertIs(original, section)
+
+    def test_dl_key_content_pairs_no_content(self):
+        transformed = list(dl_key_content_pairs(CompoundNode(' ')))
+        self.assertEqual(0, len(transformed))
 
     # region dl_keys_to_subsections
 
