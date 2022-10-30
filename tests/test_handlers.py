@@ -130,9 +130,12 @@ class TemplateTest(WikiNodesTest):
             'tracks': [
                 {
                     'title': title, 'note': '나의 어깨에 기대어요', 'lyrics': lyrics, 'music': music,
-                    'extra': Link('[[10cm (singer)|10cm]]', root=root), 'length': '3:31',
+                    'extra': Link('[[10cm (singer)|10cm]]', root=root), 'length': '3:31', '_num_': 1,
                 },
-                {'title': title, 'note': 'Inst.', 'lyrics': None, 'music': music, 'extra': None, 'length': '3:31'},
+                {
+                    'title': title, 'note': 'Inst.', 'lyrics': None, 'music': music,
+                    'extra': None, 'length': '3:31', '_num_': 2,
+                },
             ],
         }
         self.assert_equal(expected, dict(template.value))

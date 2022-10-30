@@ -335,5 +335,5 @@ def parse_rows_with_meta(value: MappingNode):
 
     keys = {k for row in rows.values() for k in row}
     rows = {int(k): row for k, row in rows.items() if any(v is not None for v in row.values())}
-    rows = [{k: row.get(k) for k in keys} for _, row in sorted(rows.items())]
+    rows = [{k: row.get(k) for k in keys} | {'_num_': num} for num, row in sorted(rows.items())]
     return meta, rows
