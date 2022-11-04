@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Collection, Iterator
 from ..exceptions import WikiResponseError
 from ..utils import partitioned
 from ..version import LooseVersion
-from .utils import TitleDataMap, _normalize_params, _multi_value_param
+from .utils import TitleDataMap, Titles, _normalize_params, _multi_value_param
 
 if TYPE_CHECKING:
     from requests import Response
@@ -50,6 +50,27 @@ class Query:
         self.client = client
         if prop:
             self._set_properties(prop)
+
+    @classmethod
+    def search(
+        cls, client: MediaWikiClient, query: str, search_type: str = 'nearmatch', limit: int = 10, offset: int = None
+    ) -> Query:
+        params = {
+            # 'srprop': ['timestamp', 'snippet', 'redirecttitle', 'categorysnippet']
+        }
+        if search_type is not None:
+            params['srwhat'] = search_type
+        if offset is not None:
+            params['sroffset'] = offset
+        return cls(client, list='search', srsearch=query, srlimit=limit, **params)
+
+    @classmethod
+    def categories(cls, client: MediaWikiClient, titles: Titles) -> Query:
+        return cls(client, titles=titles, prop='categories')
+
+    @classmethod
+    def content(cls, client: MediaWikiClient, titles: Titles) -> Query:
+        return cls(client, titles=titles, rvprop='content', prop='revisions')
 
     def _set_properties(self, properties: Collection[str]):
         if isinstance(properties, str):

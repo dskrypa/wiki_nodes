@@ -1,6 +1,11 @@
+"""
+MediaWikiClient utilities.
+"""
+
 from __future__ import annotations
 
 from typing import Iterable, Union, Any, Collection
+from urllib.parse import unquote
 
 from ..version import LooseVersion
 
@@ -8,6 +13,10 @@ TitleDataMap = dict[str, dict[str, Any]]
 PageEntry = dict[str, Union[str, list[str], None]]
 TitleEntryMap = dict[str, PageEntry]
 Titles = Union[str, Iterable[str]]
+
+
+def normalize_title(title: str) -> str:
+    return unquote(title.replace('_', ' ').strip())
 
 
 def _normalize_params(params: dict[str, Any], mw_version: LooseVersion) -> dict[str, Any]:

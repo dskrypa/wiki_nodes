@@ -8,29 +8,26 @@ requests.
 from __future__ import annotations
 
 import logging
-import pickle
 import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from io import BytesIO
 from json import JSONDecodeError
-from pathlib import Path
 from shutil import copyfileobj
 from typing import Iterable, Optional, Union, Any, Mapping, Iterator
 from urllib.parse import urlparse, unquote, parse_qs
 
 from requests import RequestException, Response
 
-from db_cache import TTLDBCache, DBCache
-from db_cache.utils import get_user_cache_dir
+from db_cache import TTLDBCache
 from requests_client import RequestsClient
 
 from ..exceptions import PageMissingError, InvalidWikiError
 from ..utils import cached_property
 from ..version import LooseVersion
+from .cache import WikiCache
 from .query import Query
-from .utils import TitleDataMap, PageEntry, TitleEntryMap, Titles, _normalize_params
+from .utils import TitleDataMap, PageEntry, TitleEntryMap, Titles, normalize_title, _normalize_params
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
@@ -38,84 +35,6 @@ qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
-
-
-class WikiCache:
-    __slots__ = ('ttl', 'base_dir', 'img_dir', 'pages', 'search_titles', 'searches', 'normalized_titles', 'misc')
-
-    ttl: int
-    pages: TTLDBCache
-    search_titles: TTLDBCache
-    searches: TTLDBCache
-    normalized_titles: DBCache
-    misc: TTLDBCache
-
-    def __init__(self, host: str, ttl: int = 21_600):  # 3600 * 6 (6 hours)
-        self.ttl = ttl
-        self.base_dir = Path(get_user_cache_dir(f'wiki/{host}'))
-        self.reset_caches(False)
-        self.img_dir = Path(get_user_cache_dir(f'wiki/{host}/images'))
-
-    def __getstate__(self) -> dict[str, Union[int, Path]]:
-        return {'ttl': self.ttl, 'base_dir': self.base_dir, 'img_dir': self.img_dir}
-
-    def __setstate__(self, state: dict[str, Union[int, Path]]):
-        self.ttl = state['ttl']
-        self.base_dir = state['base_dir']
-        self.img_dir = state['img_dir']
-        self.reset_caches(False)
-
-    def reset_caches(self, hard: bool = False):
-        cache_dir = self.base_dir
-        if hard:
-            for path in cache_dir.iterdir():
-                if path.is_file() and path.suffix == '.db':
-                    log.debug(f'Deleting cache file: {path.as_posix()}')
-                    path.unlink()
-
-        self.pages = TTLDBCache('pages', cache_dir=cache_dir, ttl=self.ttl)
-        self.search_titles = TTLDBCache('search_titles', cache_dir=cache_dir, ttl=self.ttl)
-        self.searches = TTLDBCache('searches', cache_dir=cache_dir, ttl=self.ttl)
-        # All keys in normalized_titles should be normalized to upper case to improve matching and prevent dupes
-        self.normalized_titles = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')
-        self.misc = TTLDBCache('misc', cache_dir=cache_dir, ttl=self.ttl)
-
-    def store_response(self, resp: Response):
-        now = datetime.now()
-        resp_dir = self.base_dir.joinpath('responses', now.strftime('%Y-%m-%d'))
-        if not resp_dir.exists():
-            resp_dir.mkdir(parents=True)
-        resp_dir.joinpath(f'{now.timestamp()}.url').write_text(resp.url + '\n', encoding='utf-8')
-        with resp_dir.joinpath(f'{now.timestamp()}.pkl').open('wb') as f:
-            pickle.dump(resp, f)
-
-    def get_misc(self, group: str, titles: Titles) -> tuple[list[str], dict[str, Any]]:
-        titles = [titles] if isinstance(titles, str) else titles
-        needed = []
-        found = {}
-        for title in titles:
-            try:
-                found[title] = self.misc[(group, normalize(title))]
-            except KeyError:
-                needed.append(title)
-        # log.debug(f'Found for {group=} cached={found.keys()} {needed=}')
-        return needed, found
-
-    def store_misc(self, group: str, data: Mapping[str, Any]):
-        # log.debug(f'Storing for {group=} keys={data.keys()}')
-        self.misc.update({(group, normalize(title)): value for title, value in data.items()})
-
-    def get_image(self, name: Optional[str]) -> bytes:
-        if name:
-            path = self.img_dir.joinpath(name)
-            if path.exists():
-                log.debug(f'Found cached image for {name=}')
-                return path.read_bytes()
-        raise KeyError(name)
-
-    def store_image(self, name: Optional[str], data: bytes):
-        if name:
-            self.img_dir.joinpath(name).write_bytes(data)
 
 
 class MediaWikiClient(RequestsClient):
@@ -260,7 +179,7 @@ class MediaWikiClient(RequestsClient):
 
     # endregion
 
-    # region Low-Level Query Methods
+    # region Mid-Level Parse/Query/Search Methods
 
     def query(self, **params) -> TitleDataMap:
         """
@@ -275,10 +194,6 @@ class MediaWikiClient(RequestsClient):
         :return: Mapping of {title: dict(results)}
         """
         return Query(self, **params).get_results()
-
-    # endregion
-
-    # region Mid-Level Parse/Query/Search Methods
 
     def parse(self, **params) -> dict[str, Any]:
         """
@@ -325,15 +240,14 @@ class MediaWikiClient(RequestsClient):
     def query_content(self, titles: Titles) -> dict[str, Optional[str]]:
         """Get the contents of the latest revision of one or more pages as wikitext."""
         pages = {}
-        resp = self.query(titles=titles, rvprop='content', prop='revisions')
-        for title, data in resp.items():
+        for title, data in Query.content(self, titles).get_results().items():
             revisions = data.get('revisions')
             pages[title] = revisions[0] if revisions else None
         return pages
 
     def query_categories(self, titles: Titles) -> dict[str, list[str]]:
         """Get the categories of one or more pages."""
-        resp = self.query(titles=titles, prop='categories')
+        resp = Query.categories(self, titles).get_results()
         return {title: data.get('categories', []) for title, data in resp.items()}
 
     def query_pages(
@@ -359,10 +273,10 @@ class MediaWikiClient(RequestsClient):
         :param gsrwhat: The search type to use when search is True
         :return: Mapping of {title: dict(page data)}
         """
-        return WikiQuery(self, titles, search, no_cache, gsrwhat).get_pages()
+        return PageQuery(self, titles, search, no_cache, gsrwhat).get_pages()
 
     def query_page(self, title: str, search=False, no_cache=False, gsrwhat='nearmatch') -> PageEntry:
-        return WikiQuery(self, title, search, no_cache, gsrwhat).get_page(title)
+        return PageQuery(self, title, search, no_cache, gsrwhat).get_page(title)
 
     def search(self, query: str, search_type: str = 'nearmatch', limit: int = 10, offset: int = None) -> TitleDataMap:
         """
@@ -382,14 +296,7 @@ class MediaWikiClient(RequestsClient):
         try:
             results = cache[lc_query]
         except KeyError:
-            params = {
-                # 'srprop': ['timestamp', 'snippet', 'redirecttitle', 'categorysnippet']
-            }
-            if search_type is not None:
-                params['srwhat'] = search_type
-            if offset is not None:
-                params['sroffset'] = offset
-            cache[lc_query] = results = self.query(list='search', srsearch=query, srlimit=limit, **params)
+            cache[lc_query] = results = Query.search(self, query, search_type, limit, offset).get_results()
 
         return results
 
@@ -583,10 +490,6 @@ class MediaWikiClient(RequestsClient):
     # endregion
 
 
-def normalize(title: str) -> str:
-    return unquote(title.replace('_', ' ').strip())
-
-
 def _image_name(title_or_url: str) -> str:
     try:
         file_name_match = _image_name._file_name_match
@@ -610,7 +513,7 @@ def _image_name(title_or_url: str) -> str:
     return title
 
 
-class WikiQuery:
+class PageQuery:
     def __init__(
         self,
         client: MediaWikiClient,
@@ -663,7 +566,7 @@ class WikiQuery:
         need = set()
         for title in self.titles:
             try:
-                norm_title = self._cache.normalized_titles[normalize(title)]
+                norm_title = self._cache.normalized_titles[normalize_title(title)]
             except KeyError:
                 norm_title = title
             else:
@@ -693,7 +596,7 @@ class WikiQuery:
 
     @cached_property
     def norm_to_orig(self) -> dict[str, str]:
-        return {normalize(title): title for title in self.needed}  # Return the exact titles that were requested
+        return {normalize_title(title): title for title in self.needed}  # Return the exact titles that were requested
 
     @cached_property
     def lc_norm_to_norm(self) -> dict[str, str]:
@@ -710,11 +613,11 @@ class WikiQuery:
             self._cache.pages[title] = entry = {
                 'title': title, 'categories': data.get('categories') or [], 'wikitext': rev[0] if rev else None
             }
-            yield title, normalize(title), data, entry
+            yield title, normalize_title(title), data, entry
 
     def _process_pages_resp(self, title_data_map: TitleDataMap, allow_unexpected: bool = False):
         for title, norm_title, data, entry in self._response_entries(title_data_map):
-            if redirected_from := normalize(data.get('redirected_from') or ''):
+            if redirected_from := normalize_title(data.get('redirected_from') or ''):
                 self._store_normalized(redirected_from, title, 'redirect')
                 if original := (self._original_title(redirected_from) or self._original_title(norm_title)):
                     self._store_page(original, entry)
