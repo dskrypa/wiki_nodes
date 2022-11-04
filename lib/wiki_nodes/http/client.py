@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from json import JSONDecodeError
@@ -26,8 +25,9 @@ from ..exceptions import PageMissingError, InvalidWikiError
 from ..utils import cached_property
 from ..version import LooseVersion
 from .cache import WikiCache
+from .parse import Parse
 from .query import Query
-from .utils import TitleDataMap, PageEntry, TitleEntryMap, Titles, normalize_title, _normalize_params
+from .utils import TitleDataMap, PageEntry, TitleEntryMap, Titles, normalize_title
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
@@ -204,38 +204,10 @@ class MediaWikiClient(RequestsClient):
         :param params: Parse API parameters
         :return:
         """
-        params['action'] = 'parse'
-        params['redirects'] = 1
-        properties = params.get('prop', [])
-        properties = {properties} if isinstance(properties, str) else set(properties)
-        if 'text' in properties:
-            params['disabletoc'] = 1
-            params['disableeditsection'] = 1
-
-        resp = self.get('api.php', params=_normalize_params(params, self.mw_version))
-        content = {}
-        page = resp.json()['parse']
-        for key, val in page.items():
-            if key in ('wikitext', 'categorieshtml'):
-                content[key] = val['*']
-            elif key == 'text':
-                content['html'] = val['*']
-            elif key == 'categories':
-                content[key] = [cat['*'] for cat in val]
-            elif key == 'iwlinks':
-                iwlinks = content[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
-                for iwlink in val:
-                    link_text = iwlink['*'].split(':', maxsplit=1)[1]
-                    iwlinks[iwlink['prefix']][link_text] = iwlink['url']
-            elif key == 'links':
-                content[key] = [wl['*'] for wl in val]
-            else:
-                content[key] = val
-        return content
+        return Parse(self, **params).get_results()
 
     def parse_page(self, page: str) -> dict[str, Any]:
-        resp = self.parse(page=page, prop=['wikitext', 'text', 'categories', 'links', 'iwlinks', 'displaytitle'])
-        return resp
+        return Parse.page(self, page).get_results()
 
     def query_content(self, titles: Titles) -> dict[str, Optional[str]]:
         """Get the contents of the latest revision of one or more pages as wikitext."""
@@ -428,7 +400,8 @@ class MediaWikiClient(RequestsClient):
         """
         needed, img_titles = self._cache.get_misc('images', titles)
         if needed:
-            resp = self.query(prop='images', titles=titles)
+            # resp = Query.image_titles(self, titles).get_results()
+            resp = Query.image_titles(self, needed).get_results()
             results = {title: [image['title'] for image in data.get('images', [])] for title, data in resp.items()}
             self._cache.store_misc('images', results)
             img_titles.update(results)
@@ -441,7 +414,7 @@ class MediaWikiClient(RequestsClient):
         """
         needed, urls = self._cache.get_misc('imageinfo', titles)
         if needed:
-            resp = self.query(prop='imageinfo', iiprop='url', titles=needed)
+            resp = Query.image_info(self, needed, 'url').get_results()
             resp_urls = {  # Some entries may have missing: True and no imageinfo key
                 title: img_info[0]['url'] for title, data in resp.items() if (img_info := data.get('imageinfo'))
             }

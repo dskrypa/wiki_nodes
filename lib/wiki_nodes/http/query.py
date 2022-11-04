@@ -38,7 +38,7 @@ class Query:
     :param client: The MediaWikiClient through which the query will be submitted
     :param params: Query API parameters
     """
-    __slots__ = ('titles', 'params', 'client')
+    __slots__ = ('client', 'params', 'titles')
 
     def __init__(self, client: MediaWikiClient, *, prop: StrOrStrs = None, titles: StrOrStrs = None, **params):
         params['action'] = 'query'
@@ -50,6 +50,8 @@ class Query:
         self.client = client
         if prop:
             self._set_properties(prop)
+
+    # region Alternate Constructors
 
     @classmethod
     def search(
@@ -72,6 +74,16 @@ class Query:
     def content(cls, client: MediaWikiClient, titles: Titles) -> Query:
         return cls(client, titles=titles, rvprop='content', prop='revisions')
 
+    @classmethod
+    def image_titles(cls, client: MediaWikiClient, titles: Titles) -> Query:
+        return cls(client, prop='images', titles=titles)
+
+    @classmethod
+    def image_info(cls, client: MediaWikiClient, titles: Titles, img_properties: StrOrStrs) -> Query:
+        return cls(client, prop='imageinfo', titles=titles, iiprop=img_properties)
+
+    # endregion
+
     def _set_properties(self, properties: Collection[str]):
         if isinstance(properties, str):
             properties = {properties}
@@ -92,6 +104,16 @@ class Query:
             if self.client.mw_version >= LooseVersion('1.32'):
                 self.params['rvslots'] = 'main'
 
+    def get_results(self) -> TitleDataMap:
+        """
+        :return: Mapping of {title: dict(results)}
+        """
+        return {
+            title: page.data
+            for params in self._param_page_iter()
+            for title, page in self._get_paginated_results(params).items()
+        }
+
     def _param_page_iter(self) -> Iterator[dict[str, Any]]:
         """
         When requesting a large number of titles, the requests for those titles must be split so that each query
@@ -110,16 +132,6 @@ class Query:
                     yield {'titles': _multi_value_param(group), **params}
         else:
             yield params
-
-    def get_results(self) -> TitleDataMap:
-        """
-        :return: Mapping of {title: dict(results)}
-        """
-        return {
-            title: page.data
-            for params in self._param_page_iter()
-            for title, page in self._get_paginated_results(params).items()
-        }
 
     def _get_paginated_results(self, params: dict[str, Any]) -> dict[str, PageData]:
         query_resp = QueryResponse(self, self.client.get('api.php', params=params))
