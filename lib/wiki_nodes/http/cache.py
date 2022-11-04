@@ -8,7 +8,7 @@ import logging
 import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union, Any, Mapping
+from typing import TYPE_CHECKING, Optional, Union, Any, Mapping
 
 from requests import Response
 
@@ -16,6 +16,9 @@ from db_cache import TTLDBCache, DBCache
 from db_cache.utils import get_user_cache_dir
 
 from .utils import Titles, normalize_title
+
+if TYPE_CHECKING:
+    from ..typing import PathLike
 
 __all__ = ['WikiCache']
 log = logging.getLogger(__name__)
@@ -31,11 +34,13 @@ class WikiCache:
     normalized_titles: DBCache
     misc: TTLDBCache
 
-    def __init__(self, host: str, ttl: int = 21_600):  # 3600 * 6 (6 hours)
-        self.ttl = ttl
-        self.base_dir = Path(get_user_cache_dir(f'wiki/{host}'))
+    def __init__(self, host: str, ttl: int = 21_600, base_dir: PathLike = None, img_dir: PathLike = None):
+        self.ttl = ttl  # Note: default value of 21_600 = 3600 * 6 (6 hours)
+        self.base_dir = Path(base_dir or get_user_cache_dir(f'wiki/{host}'))
+        self.base_dir.mkdir(parents=True, exist_ok=True)
         self.reset_caches(False)
-        self.img_dir = Path(get_user_cache_dir(f'wiki/{host}/images'))
+        self.img_dir = Path(img_dir or get_user_cache_dir(f'wiki/{host}/images'))
+        self.img_dir.mkdir(parents=True, exist_ok=True)
 
     def __getstate__(self) -> dict[str, Union[int, Path]]:
         return {'ttl': self.ttl, 'base_dir': self.base_dir, 'img_dir': self.img_dir}
