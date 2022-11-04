@@ -17,7 +17,8 @@ from typing import Any
 from unittest import TestCase
 from unittest.mock import Mock, seal, patch
 
-from .http.client import MediaWikiClient, WikiCache
+from .http.cache import  WikiCache
+from .http.client import MediaWikiClient
 from .utils import rich_repr
 
 __all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock', 'RedirectStreams', 'mocked_client', 'get_siteinfo']

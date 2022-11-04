@@ -67,7 +67,7 @@ class MediaWikiClient(RequestsClient):
 
     def __init(self):
         if MediaWikiClient._siteinfo_cache is None:
-            MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=3600 * 24)
+            MediaWikiClient._siteinfo_cache = TTLDBCache('siteinfo', cache_subdir='wiki', ttl=86_400)  # 3600 * 24
         self.__initialized = True
 
     def __repr__(self) -> str:
@@ -99,10 +99,12 @@ class MediaWikiClient(RequestsClient):
             try:
                 self._siteinfo_cache[self.host] = siteinfo = resp.json()['query']
             except JSONDecodeError:
-                site = None
+                site = self.host
                 if 'Not_a_valid_community' in resp.url:
-                    site = parse_qs(urlparse(resp.url).params).get('from')  # noqa
-                site = site or self.host
+                    try:
+                        site = parse_qs(urlparse(resp.url).query)['from'][0]  # noqa
+                    except Exception:  # noqa
+                        pass
                 raise InvalidWikiError(f'Invalid site: {site!r}')
             return siteinfo
 
@@ -166,7 +168,8 @@ class MediaWikiClient(RequestsClient):
             parsed = urlparse(url)
             uri_path = unquote(parsed.path)
             title = uri_path.replace(self.article_path_prefix, '', 1)
-            if url.endswith('?') and not title.endswith('?'):
+            if url.endswith('?') and not title.endswith('?'):  # TODO: Is this necessary?
+                log.debug(f'TODO_CASE: Encountered {url=} ending in ? with {title=} not ending in ?')
                 title += '?'
             elif parsed.query and not parse_qs(parsed.query):
                 title = f'{title}?{parsed.query}'

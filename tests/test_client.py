@@ -1,14 +1,41 @@
 #!/usr/bin/env python
 
-from unittest import main
+from copy import deepcopy
+from json import JSONDecodeError
+from unittest import TestCase, main
+from unittest.mock import Mock, patch
 
 from wiki_nodes import MediaWikiClient
+from wiki_nodes.exceptions import InvalidWikiError
 from wiki_nodes.http.query import Query
 from wiki_nodes.http.utils import _normalize_params
-from wiki_nodes.testing import WikiNodesTest, mocked_client
+from wiki_nodes.testing import WikiNodesTest, mocked_client, get_siteinfo
 from wiki_nodes.version import LooseVersion
 
 SITE = 'en.wikipedia.org'
+
+
+class WikiClientNoGlobalMockTest(TestCase):
+    def setUp(self):
+        MediaWikiClient._instances.clear()
+        MediaWikiClient._siteinfo_cache = None
+
+    tearDown = setUp
+
+    def test_client_siteinfo_cache_init(self):  # noqa
+        with patch('wiki_nodes.http.client.TTLDBCache') as ttl_db_cache_mock:
+            MediaWikiClient(SITE)
+            ttl_db_cache_mock.assert_called()
+
+    def test_client_siteinfo(self):
+        get_mocks = [Mock(json=Mock(return_value={'query': get_siteinfo(SITE)})), Mock()]
+        MediaWikiClient._siteinfo_cache = {}
+        with patch.object(MediaWikiClient, 'get', side_effect=get_mocks):
+            client = MediaWikiClient(SITE)
+            self.assertEqual(2, len(client.siteinfo))
+            get_mocks[0].json.assert_called()
+            self.assertEqual(2, len(client.siteinfo))
+            get_mocks[1].json.assert_not_called()
 
 
 class WikiClientTest(WikiNodesTest):
@@ -43,6 +70,68 @@ class WikiClientTest(WikiNodesTest):
         params = Query(mocked_client(SITE)).params
         expected = {'action': 'query', 'redirects': 1}
         self.assertDictEqual(expected, params)
+
+    def test_client_repr(self):
+        self.assertEqual(f'<MediaWikiClient({SITE})>', repr(MediaWikiClient(SITE)))
+
+    def test_client_deepcopy(self):
+        with patch('wiki_nodes.http.client.WikiCache'):
+            client = MediaWikiClient(SITE)
+            clone = deepcopy(client)
+            self.assertIs(client, clone)
+
+    def test_client_deepcopy_forced_init(self):
+        with patch('wiki_nodes.http.client.WikiCache'):
+            client = MediaWikiClient(SITE)
+            MediaWikiClient._instances.clear()
+            clone = deepcopy(client)
+            self.assertFalse(client is clone)
+
+    def test_client_siteinfo_invalid(self):
+        MediaWikiClient._siteinfo_cache = {}
+        resp = Mock(json=Mock(side_effect=JSONDecodeError('', '', 0)), url='hxxp://foo/bar')
+        with patch.object(MediaWikiClient, 'get', return_value=resp):
+            client = MediaWikiClient(SITE)
+            with self.assertRaisesRegex(InvalidWikiError, f'Invalid site: {SITE!r}'):
+                _ = client.siteinfo
+
+    def test_client_siteinfo_invalid_community(self):
+        MediaWikiClient._siteinfo_cache = {}
+        resp = Mock(json=Mock(side_effect=JSONDecodeError('', '', 0)), url='hxxp://foo/Not_a_valid_community/?from=bar')
+        with patch.object(MediaWikiClient, 'get', return_value=resp):
+            client = MediaWikiClient(SITE)
+            with self.assertRaisesRegex(InvalidWikiError, "Invalid site: 'bar'"):
+                _ = client.siteinfo
+
+    def test_client_siteinfo_invalid_community_error(self):
+        MediaWikiClient._siteinfo_cache = {}
+        resp = Mock(json=Mock(side_effect=JSONDecodeError('', '', 0)), url='hxxp://foo/Not_a_valid_community/')
+        with patch.object(MediaWikiClient, 'get', return_value=resp):
+            client = MediaWikiClient(SITE)
+            with self.assertRaisesRegex(InvalidWikiError, f'Invalid site: {SITE!r}'):
+                _ = client.siteinfo
+
+    def test_no_interwiki_client(self):
+        client = MediaWikiClient(SITE)
+        client.__dict__.update(interwiki_map={}, lc_interwiki_map={})
+        self.assertIs(None, client.interwiki_client('foo'))
+
+    def test_article_url_to_title_trailing_query(self):
+        self.assertEqual('foo?bar', mocked_client(SITE).article_url_to_title('https://en.wikipedia.org/wiki/foo?bar'))
+
+    def test_query(self):  # noqa
+        with patch('wiki_nodes.http.client.Query') as query_mock:
+            MediaWikiClient(SITE).query()
+            query_mock.assert_called()
+
+    def test_parse(self):  # noqa
+        client = MediaWikiClient(SITE)
+        with patch('wiki_nodes.http.client.Parse') as parse_mock:
+            client.parse()
+            parse_mock.assert_called()
+        with patch('wiki_nodes.http.client.Parse.page') as parse_mock:
+            client.parse_page('foo')
+            parse_mock.assert_called_with(client, 'foo')
 
 
 if __name__ == '__main__':
