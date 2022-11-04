@@ -4,7 +4,7 @@ from unittest import main
 from unittest.mock import patch
 
 from wiki_nodes import Link
-from wiki_nodes.http import WikiQuery, MediaWikiClient
+from wiki_nodes.http.client import WikiQuery, MediaWikiClient
 from wiki_nodes.exceptions import PageMissingError, NoLinkSite
 from wiki_nodes.testing import WikiNodesTest
 

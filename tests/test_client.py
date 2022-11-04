@@ -3,6 +3,8 @@
 from unittest import main
 
 from wiki_nodes import MediaWikiClient
+from wiki_nodes.http.query import Query
+from wiki_nodes.http.utils import _normalize_params
 from wiki_nodes.testing import WikiNodesTest, mocked_client
 from wiki_nodes.version import LooseVersion
 
@@ -29,18 +31,16 @@ class WikiClientTest(WikiNodesTest):
     def test_article_url_prefix(self):
         self.assertEqual('https://en.wikipedia.org/w/wiki/', mocked_client(SITE).article_url_prefix)
 
-    def test_update_params(self):
-        params = mocked_client(SITE)._update_params({'foo': [1, 2]})
+    def test_normalize_params(self):
+        params = _normalize_params({'foo': [1, 2]}, mocked_client(SITE).mw_version)
         expected = {'foo': '1|2', 'utf8': 1, 'format': 'json', 'formatversion': 2}
         self.assertDictEqual(expected, params)
 
-    def test_old_version_update_params(self):
-        client = mocked_client(SITE)
-        client.__dict__['mw_version'] = LooseVersion('1.1')
-        self.assertNotIn('formatversion', client._update_params({}))
+    def test_old_version_normalize_params(self):
+        self.assertNotIn('formatversion', _normalize_params({}, LooseVersion('1.1')))
 
     def test_prepare_query_params_basic(self):
-        params = mocked_client(SITE)._prepare_query_params({})
+        params = Query(mocked_client(SITE)).params
         expected = {'action': 'query', 'redirects': 1}
         self.assertDictEqual(expected, params)
 

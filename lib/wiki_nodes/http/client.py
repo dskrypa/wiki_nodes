@@ -12,13 +12,12 @@ import pickle
 import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from copy import deepcopy
 from datetime import datetime
 from io import BytesIO
-from json import JSONDecodeError, dumps
+from json import JSONDecodeError
 from pathlib import Path
 from shutil import copyfileobj
-from typing import Iterable, Optional, Union, Any, Collection, Mapping, Iterator
+from typing import Iterable, Optional, Union, Any, Mapping, Iterator
 from urllib.parse import urlparse, unquote, parse_qs
 
 from requests import RequestException, Response
@@ -26,9 +25,12 @@ from requests import RequestException, Response
 from db_cache import TTLDBCache, DBCache
 from db_cache.utils import get_user_cache_dir
 from requests_client import RequestsClient
-from .exceptions import WikiResponseError, PageMissingError, InvalidWikiError
-from .utils import partitioned, cached_property
-from .version import LooseVersion
+
+from ..exceptions import PageMissingError, InvalidWikiError
+from ..utils import cached_property
+from ..version import LooseVersion
+from .query import Query
+from .utils import TitleDataMap, PageEntry, TitleEntryMap, Titles, _normalize_params
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
@@ -36,11 +38,6 @@ qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
-
-PageEntry = dict[str, Union[str, list[str], None]]
-TitleDataMap = dict[str, dict[str, Any]]
-TitleEntryMap = dict[str, PageEntry]
-Titles = Union[str, Iterable[str]]
 
 
 class WikiCache:
@@ -265,41 +262,6 @@ class MediaWikiClient(RequestsClient):
 
     # region Low-Level Query Methods
 
-    def _update_params(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Include useful default parameters, and handle conversion of lists/tuples/sets to pipe-delimited strings."""
-        params['format'] = 'json'
-        if self.mw_version >= LooseVersion('1.25'):     # https://www.mediawiki.org/wiki/API:JSON_version_2
-            params['formatversion'] = 2
-        params['utf8'] = 1
-        for key, val in params.items():
-            # TODO: Figure out U+001F usage when a value containing | is found
-            # Docs: If | in value, use U+001F as the separator & prefix value with it, e.g. param=%1Fvalue1%1Fvalue2
-            if isinstance(val, Collection) and not isinstance(val, str):
-            # if isinstance(val, (list, tuple, set)):
-                params[key] = '|'.join(map(str, val))
-                # params[key] = ''.join(map('\u001f{}'.format, val))    # doesn't work for vals without |
-        return params
-
-    def _prepare_query_params(self, params):
-        params['action'] = 'query'
-        params['redirects'] = 1
-        properties = params.get('prop', [])
-        properties = {properties} if isinstance(properties, str) else set(properties)
-        if 'iwlinks' in properties:                 # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Iwlinks
-            if self.mw_version >= LooseVersion('1.24'):
-                params['iwprop'] = 'url'
-            else:
-                params['iwurl'] = 1
-        if 'categories' in properties:              # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Categories
-            params['cllimit'] = 500  # default: 10
-        if 'revisions' in properties:               # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Revisions
-            if self.mw_version >= LooseVersion('1.32'):
-                params['rvslots'] = 'main'
-        if params.get('list') == 'allcategories':
-            params.setdefault('aclimit', 500)
-
-        return params
-
     def query(self, **params) -> TitleDataMap:
         """
         Submit, then parse and transform a `query request <https://www.mediawiki.org/wiki/API:Query>`_
@@ -312,161 +274,7 @@ class MediaWikiClient(RequestsClient):
         :param params: Query API parameters
         :return: Mapping of {title: dict(results)}
         """
-        params = self._prepare_query_params(params)
-        titles = params.pop('titles', None)  # type: Union[str, Collection[str]]
-        if titles:
-            if isinstance(titles, str) or len(titles) <= 50:
-                return self._query(titles=titles, **params)
-            else:
-                full_resp = {}  # type: TitleDataMap  # noqa
-                for group in partitioned(list(titles), 50):
-                    full_resp.update(self._query(titles=group, **params))
-                return full_resp
-        else:
-            return self._query(**params)
-
-    def _query(self, *, no_parse: bool = False, **params) -> TitleDataMap:
-        params = self._update_params(params)
-        resp = self.get('api.php', params=params)
-        if self._pickle_queries:
-            self._cache.store_response(resp)
-        if no_parse:
-            return resp.json()
-        parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
-        # log.debug(f'From {resp.url=} - parsed.keys()={parsed.keys()}')
-        skip_merge = {'pageid', 'ns', 'title', 'redirected_from'}
-        while prop_continue or other_continue:
-            continue_params = deepcopy(params)
-            if prop_continue:
-                continue_params['prop'] = '|'.join(prop_continue.keys())
-                for continue_cmd in prop_continue.values():
-                    continue_params.update(continue_cmd)
-            if other_continue:
-                continue_params.update(other_continue)
-
-            resp = self.get('api.php', params=continue_params)
-            if self._pickle_queries:
-                self._cache.store_response(resp)
-            _parsed, prop_continue, other_continue = self._parse_query(resp.json(), resp.url)
-            # log.debug(f'From {resp.url=} - _parsed.keys()={_parsed.keys()}')
-            for title, data in _parsed.items():
-                try:
-                    full = parsed[title]
-                except KeyError:
-                    parsed[title] = data
-                else:
-                    self._normalize_page_data(title, full, data, skip_merge)
-
-        return parsed
-
-    @staticmethod
-    def _normalize_page_data(title: str, full: dict[str, Any], data: dict[str, Any], skip_merge: set[str]):
-        for key, val in data.items():
-            if key == 'iwlinks':
-                try:
-                    full_val = full[key]
-                except KeyError:
-                    full_val = full[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
-
-                for iw_name, iw_links in val.items():
-                    full_val[iw_name].update(iw_links)
-            else:
-                try:
-                    full_val = full[key]
-                except KeyError:
-                    full[key] = val
-                else:
-                    if isinstance(full_val, list):
-                        full_val.extend(val)
-                    elif isinstance(full_val, dict):
-                        full_val.update(val)
-                    elif isinstance(full_val, int):
-                        full[key] = val
-                    elif key in skip_merge:
-                        pass
-                    else:
-                        if val is not None and full_val is None:
-                            full[key] = val
-                        elif val == full_val:
-                            pass
-                        else:
-                            val_type = type(full_val).__name__
-                            log.error(f'Unexpected merge value for {title=} {key=} {val_type=} {full_val=} new {val=}')
-
-    def _parse_query(self, response: dict[str, Any], url: str) -> tuple[TitleDataMap, Any, Any]:
-        if 'query' not in response and 'error' in response:
-            raise WikiResponseError(dumps(response['error']))
-        try:
-            results = response['query']
-        except KeyError:
-            if len(response) != 1 or not response.get('batchcomplete'):
-                log.debug(f'Response from {url} contained no \'query\' key; found: {", ".join(response)}')
-            # log.debug(f'Complete response: {dumps(response, sort_keys=True, indent=4)}')
-            return {}, None, None
-        except TypeError:
-            if not response:
-                log.debug(f'Response from {url} was empty.')
-            else:
-                log.debug(f'Response from {url} was not a dict; found: {response}')
-            return {}, None, None
-
-        if 'pages' in results:
-            parsed = self._parse_query_pages(results)
-        elif 'allcategories' in results:
-            parsed = {row['category']: row['size'] for row in results['allcategories']}
-        elif 'search' in results:
-            parsed = {row['title']: row for row in results['search']}
-        else:
-            query_keys = ', '.join(results)
-            log.debug(f'Query results from {url} did not contain any handled keys; found: {query_keys}')
-            return {}, None, None
-
-        prop_continue = response.get('query-continue')
-        other_continue = response.get('continue')
-        return parsed, prop_continue, other_continue
-
-    def _parse_query_pages(self, results: dict[str, Any]) -> TitleDataMap:
-        pages = results['pages']
-        redirects = results.get('redirects', [])
-        redirects = {r['to']: r['from'] for r in (redirects.values() if isinstance(redirects, dict) else redirects)}
-        if isinstance(pages, dict):
-            pages = pages.values()
-
-        if self.mw_version >= LooseVersion('1.25'):
-            iw_key = 'title'
-            rev_key = 'content'
-        else:
-            iw_key, rev_key = '*', '*'
-
-        parsed = {}
-        for page in pages:
-            title = page['title']
-            qlog.debug(f'Processing page with title={title!r}, keys: {", ".join(sorted(page))}')
-            # if 'revisions' not in page:
-            #     qlog.debug(f' > Content: {dumps(page, sort_keys=True, indent=4)}')
-            if redirected_from := redirects.get(title):
-                content = {'redirected_from': redirected_from}
-            else:
-                content = {}
-
-            parsed[title] = content
-            for key, val in page.items():
-                if key == 'revisions':
-                    if self.mw_version >= LooseVersion('1.32'):
-                        content[key] = [rev['slots']['main']['content'] for rev in val]
-                    else:
-                        content[key] = [rev[rev_key] for rev in val]
-                elif key == 'categories':
-                    content[key] = [cat['title'].split(':', maxsplit=1)[1] for cat in val]
-                elif key == 'iwlinks':
-                    iwlinks = content[key] = defaultdict(dict)  # Mapping of {wiki name: {title: full url}}
-                    for iwlink in val:
-                        iwlinks[iwlink['prefix']][iwlink[iw_key]] = iwlink['url']
-                elif key == 'links':
-                    content[key] = [link['title'] for link in val]
-                else:
-                    content[key] = val
-        return parsed
+        return Query(self, **params).get_results()
 
     # endregion
 
@@ -489,7 +297,7 @@ class MediaWikiClient(RequestsClient):
             params['disabletoc'] = 1
             params['disableeditsection'] = 1
 
-        resp = self.get('api.php', params=self._update_params(params))
+        resp = self.get('api.php', params=_normalize_params(params, self.mw_version))
         content = {}
         page = resp.json()['parse']
         for key, val in page.items():
@@ -970,7 +778,7 @@ class WikiQuery:
         self._no_data.discard(title)
 
 
-from .page import WikiPage  # noqa  # Down here due to circular dependency
+from ..page import WikiPage  # noqa  # Down here due to circular dependency
 
 
 if __name__ == '__main__':
