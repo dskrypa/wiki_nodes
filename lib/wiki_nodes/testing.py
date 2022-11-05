@@ -18,8 +18,6 @@ from typing import Any, ContextManager
 from unittest import TestCase
 from unittest.mock import Mock, seal, patch
 
-from requests_client import RequestsClient
-
 from .http.cache import WikiCache
 from .http.client import MediaWikiClient
 from .utils import rich_repr
@@ -39,7 +37,7 @@ __all__ = [
 TEST_DATA_DIR = Path(__file__).resolve().parents[2].joinpath('tests', 'data')
 
 
-class WikiNodesTest(TestCase):
+class WikiNodesTestBase(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -49,21 +47,14 @@ class WikiNodesTest(TestCase):
         # Avoid relatively heavy introspection during frequent client init
         cls._generate_user_agent_patch = patch('requests_client.client.generate_user_agent', return_value='FAKE_UA')
         cls._generate_user_agent_patch.start()  # noqa
-        # Prevent unintended fs access
-        cls._wiki_cache_reset_patch = patch.object(WikiCache, 'reset_caches')
-        cls._wiki_cache_reset_patch.start()  # noqa
-        # Prevent unintended dir/file creation
-        cls._wiki_cache_init_patch = patch.object(WikiCache, '__init__', return_value=None)
-        cls._wiki_cache_init_patch.start()  # noqa
         # Prevent TTLDBCache init during client instance init
         MediaWikiClient._siteinfo_cache = Mock()
 
     @classmethod
     def tearDownClass(cls):
+        super().tearDownClass()
         cls._mwc_request_patch.stop()  # noqa
         cls._generate_user_agent_patch.stop()  # noqa
-        cls._wiki_cache_reset_patch.stop()  # noqa
-        cls._wiki_cache_init_patch.stop()  # noqa
 
     def tearDown(self):
         MediaWikiClient._instances.clear()
@@ -103,6 +94,24 @@ class WikiNodesTest(TestCase):
         if sub_text not in text:
             diff = format_diff(sub_text, text, n=diff_lines)
             self.fail('String did not contain expected text:\n' + diff)
+
+
+class WikiNodesTest(WikiNodesTestBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Prevent unintended fs access
+        cls._wiki_cache_reset_patch = patch.object(WikiCache, 'reset_caches')
+        cls._wiki_cache_reset_patch.start()  # noqa
+        # Prevent unintended dir/file creation
+        cls._wiki_cache_init_patch = patch.object(WikiCache, '__init__', return_value=None)
+        cls._wiki_cache_init_patch.start()  # noqa
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        cls._wiki_cache_reset_patch.stop()  # noqa
+        cls._wiki_cache_init_patch.stop()  # noqa
 
 
 def _colored(text: str, color: int, end: str = '\n'):
@@ -210,8 +219,8 @@ def mock_response(json_data=None, **kwargs):
     return Mock(json=Mock(side_effect=json_data), **kwargs)
 
 
-def mocked_client(site: str):
-    client = MediaWikiClient(site)
+def mocked_client(site: str, **kwargs):
+    client = MediaWikiClient(site, **kwargs)
     try:
         siteinfo = get_siteinfo(site)
     except FileNotFoundError:
@@ -220,6 +229,29 @@ def mocked_client(site: str):
         client.__dict__['siteinfo'] = siteinfo
 
     return client
+
+
+def _dump_site_info(client: MediaWikiClient) -> str:
+    sio = StringIO()
+    sio.write('{\n')
+    last = len(client.siteinfo)
+    for i, (key, value) in enumerate(sorted(client.siteinfo.items()), 1):
+        suffix = ',\n' if i < last else '\n'
+        if key == 'interwikimap':
+            sio.write(f'    "{key}": [\n')
+            sio.write(',\n'.join('        ' + json.dumps(row, sort_keys=True, ensure_ascii=False) for row in value))
+            sio.write(f'\n    ]{suffix}')
+        else:
+            serialized = json.dumps(value, sort_keys=True, indent=4, ensure_ascii=False)
+            if serialized.startswith(('{\n', '[\n')):
+                lines = serialized.splitlines()
+                sio.write(f'    "{key}": {lines[0]}\n')
+                sio.write('\n'.join('    ' + line for line in lines[1:-1]))
+                sio.write(f'\n    {lines[-1]}{suffix}')
+            else:
+                sio.write(f'    "{key}": {serialized}{suffix}')
+    sio.write('}')
+    return sio.getvalue()
 
 
 @contextmanager

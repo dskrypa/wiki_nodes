@@ -3,6 +3,7 @@
 from unittest import main, TestCase
 from unittest.mock import Mock
 
+from wiki_nodes.http.utils import _normalize_file_name
 from wiki_nodes.nodes.nodes import _print, _strings
 from wiki_nodes.utils import IntervalCoverageMap, short_repr, partitioned, rich_repr
 from wiki_nodes.version import LooseVersion, StrictVersion
@@ -69,7 +70,7 @@ class IntervalCoverageMapTest(TestCase):
 
     def test_bad_type(self):
         with self.assertRaisesRegex(ValueError, 'Expected a pair of ints; found'):
-            IntervalCoverageMap()[('a', 1)] = 'a'
+            IntervalCoverageMap()[('a', 1)] = 'a'  # noqa
 
 
 class TestUtils(TestCase):
@@ -93,6 +94,13 @@ class TestUtils(TestCase):
     def test_strings_unexpected_types(self):
         self.assertListEqual(['1'], list(_strings(1)))
         self.assertListEqual(['a', 'b'], list(_strings({'a': 'b'})))
+
+    def test_normalize_file_name(self):
+        self.assertEqual('bar.baz', _normalize_file_name('https://foo.org/file/bar.baz'))
+        self.assertEqual('bar.baz', _normalize_file_name('https://foo.org/file/bar.baz/revision/latest'))
+        self.assertEqual('bar.baz', _normalize_file_name('File:bar.baz'))
+        with self.assertRaisesRegex(ValueError, 'Unable to determine filename'):
+            _normalize_file_name('https://en.wikipedia.org')
 
 
 class TestVersion(TestCase):

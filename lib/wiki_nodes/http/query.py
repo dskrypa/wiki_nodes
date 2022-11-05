@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 
+PageDataMap = dict[str, 'PageData']
+
 
 class Query:
     """
@@ -38,7 +40,11 @@ class Query:
     :param client: The MediaWikiClient through which the query will be submitted
     :param params: Query API parameters
     """
-    __slots__ = ('client', 'params', 'titles')
+    __slots__ = ('client', 'params', 'titles', '_responses')
+    client: MediaWikiClient
+    params: dict[str, Any]
+    titles: StrOrStrs
+    _responses: list[QueryResponse]
 
     def __init__(self, client: MediaWikiClient, *, prop: StrOrStrs = None, titles: StrOrStrs = None, **params):
         params['action'] = 'query'
@@ -75,12 +81,24 @@ class Query:
         return cls(client, titles=titles, rvprop='content', prop='revisions')
 
     @classmethod
-    def image_titles(cls, client: MediaWikiClient, titles: Titles) -> Query:
-        return cls(client, prop='images', titles=titles)
+    def image_titles(cls, client: MediaWikiClient, page_titles: Titles) -> Query:
+        """Query that retrieves all of the titles of images present on the provided page(s)."""
+        return cls(client, prop='images', titles=page_titles)
 
     @classmethod
-    def image_info(cls, client: MediaWikiClient, titles: Titles, img_properties: StrOrStrs) -> Query:
-        return cls(client, prop='imageinfo', titles=titles, iiprop=img_properties)
+    def image_info(cls, client: MediaWikiClient, image_titles: Titles, img_properties: StrOrStrs) -> Query:
+        """Query that retrieves the specified image properties (such as URL) for all of the provided image titles."""
+        return cls(client, prop='imageinfo', titles=image_titles, iiprop=img_properties)
+
+    @classmethod
+    def page_image_info(cls, client: MediaWikiClient, page_titles: Titles, img_properties: StrOrStrs) -> Query:
+        """
+        Query that retrieves the specified image properties (such as URL) for all images on the provided page(s).
+
+        The source page title is not included in the response, only the image titles, so separate queries need to be
+        made if the originating page title needs to be retained.
+        """
+        return cls(client, prop='imageinfo', generator='images', titles=page_titles, iiprop=img_properties)
 
     # endregion
 
@@ -108,11 +126,20 @@ class Query:
         """
         :return: Mapping of {title: dict(results)}
         """
-        return {
-            title: page.data
-            for params in self._param_page_iter()
-            for title, page in self._get_paginated_results(params).items()
-        }
+        title_page_map = {}
+        for query_resp, new_tpm in self._iter_responses():
+            for title, new_page_data in new_tpm.items():
+                try:
+                    page_data = title_page_map[title]
+                except KeyError:
+                    title_page_map[title] = new_page_data
+                else:
+                    page_data.update(new_page_data.data)
+
+        return {title: page.data for title, page in title_page_map.items()}
+
+    def get_responses(self) -> list[QueryResponse]:
+        return [query_resp for query_resp, _ in self._iter_responses()]
 
     def _param_page_iter(self) -> Iterator[dict[str, Any]]:
         """
@@ -133,9 +160,24 @@ class Query:
         else:
             yield params
 
-    def _get_paginated_results(self, params: dict[str, Any]) -> dict[str, PageData]:
+    def _iter_responses(self) -> Iterator[tuple[QueryResponse, PageDataMap]]:
+        try:
+            responses = self._responses
+        except AttributeError:
+            self._responses = responses = []
+            for params in self._param_page_iter():
+                for query_resp, title_page_map in self._iter_paginated_responses(params):
+                    responses.append(query_resp)
+                    yield query_resp, title_page_map
+        else:
+            for query_resp in responses:
+                yield query_resp, query_resp.parse()[0]
+
+    def _iter_paginated_responses(self, params: dict[str, Any]) -> Iterator[tuple[QueryResponse, PageDataMap]]:
         query_resp = QueryResponse(self, self.client.get('api.php', params=params))
         title_page_map, prop_continue, other_continue = query_resp.parse()
+        yield query_resp, title_page_map
+
         while prop_continue or other_continue:
             continue_params = deepcopy(params)
             if prop_continue:
@@ -148,19 +190,14 @@ class Query:
             query_resp = QueryResponse(self, self.client.get('api.php', params=continue_params))
             new_tpm, prop_continue, other_continue = query_resp.parse()
             # log.debug(f'From {resp.url=} - new_tpm.keys()={new_tpm.keys()}')
-            for title, new_page_data in new_tpm.items():
-                try:
-                    page_data = title_page_map[title]
-                except KeyError:
-                    title_page_map[title] = new_page_data
-                else:
-                    page_data.update(new_page_data.data)
-
-        return title_page_map
+            yield query_resp, new_tpm
 
 
 class QueryResponse:
-    __slots__ = ('query', 'resp')
+    __slots__ = ('query', 'resp', '_parsed')
+    query: Query
+    resp: Response
+    _parsed: tuple[PageDataMap, Any, Any]
 
     def __init__(self, query: Query, resp: Response):
         self.query = query
@@ -185,7 +222,11 @@ class QueryResponse:
 
         return response
 
-    def parse(self) -> tuple[dict[str, PageData], Any, Any]:
+    def parse(self) -> tuple[PageDataMap, Any, Any]:
+        try:
+            return self._parsed
+        except AttributeError:
+            pass
         if not (response := self._get_resp_dict()):
             return response, None, None
 
@@ -198,11 +239,11 @@ class QueryResponse:
             return {}, None, None
 
         if 'pages' in results:
-            parsed = self._parse_query_pages(results)
+            data = self._parse_query_pages(results)
         elif 'allcategories' in results:
-            parsed = {row['category']: row['size'] for row in results['allcategories']}
+            data = {row['category']: row['size'] for row in results['allcategories']}
         elif 'search' in results:
-            parsed = {row['title']: row for row in results['search']}
+            data = {row['title']: row for row in results['search']}
         else:
             query_keys = ', '.join(results)
             log.debug(f'Query results from {self.resp.url} did not contain any handled keys; found: {query_keys}')
@@ -210,9 +251,10 @@ class QueryResponse:
 
         prop_continue = response.get('query-continue')
         other_continue = response.get('continue')
-        return parsed, prop_continue, other_continue
+        self._parsed = parsed = data, prop_continue, other_continue
+        return parsed
 
-    def _parse_query_pages(self, results: dict[str, Any]) -> dict[str, PageData]:
+    def _parse_query_pages(self, results: dict[str, Any]) -> PageDataMap:
         redirects = results.get('redirects', [])
         redirects = {r['to']: r['from'] for r in (redirects.values() if isinstance(redirects, dict) else redirects)}
         if isinstance((pages := results['pages']), dict):

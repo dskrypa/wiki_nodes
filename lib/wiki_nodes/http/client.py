@@ -8,7 +8,6 @@ requests.
 from __future__ import annotations
 
 import logging
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from json import JSONDecodeError
@@ -27,14 +26,13 @@ from ..version import LooseVersion
 from .cache import WikiCache
 from .parse import Parse
 from .query import Query
-from .utils import TitleDataMap, PageEntry, TitleEntryMap, Titles, normalize_title
+from .utils import URL_MATCH, TitleDataMap, PageEntry, TitleEntryMap, Titles, normalize_title, _normalize_file_name
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
 qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 
-URL_MATCH = re.compile('^[a-zA-Z]+://').match
 HOST_PATH_PREFIX_MAP = {'en.wikipedia.org': 'w', 'www.generasia.com': 'w'}
 
 
@@ -50,7 +48,7 @@ class MediaWikiClient(RequestsClient):
             cls._instances[host] = instance = super().__new__(cls)
             return instance
 
-    def __init__(self, host_or_url: str, *args, ttl=3600 * 6, **kwargs):
+    def __init__(self, host_or_url: str, *args, ttl=3600 * 6, wiki_cache: WikiCache = None, **kwargs):
         if not getattr(self, '_MediaWikiClient__initialized', False):
             headers = kwargs.get('headers') or {}
             headers.setdefault('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
@@ -65,7 +63,7 @@ class MediaWikiClient(RequestsClient):
             except KeyError:
                 pass
             self.__init()
-            self._cache = WikiCache(self.host, ttl)
+            self._cache = wiki_cache or WikiCache(self.host, ttl)
 
     # region Internal Methods
 
@@ -400,10 +398,29 @@ class MediaWikiClient(RequestsClient):
 
     # endregion
 
+    def _get_file_content(self, url: str) -> tuple[bytes, int]:
+        resp = self.get(url, relative=False, stream=True)
+        try:
+            content_len = int(resp.headers['Content-Length'])
+        except (ValueError, TypeError, KeyError):
+            content_len = 0
+
+        bio = BytesIO()
+        resp.raw.decode_content = True
+        copyfileobj(resp.raw, bio)
+        data = bio.getvalue()
+        log.debug(f'Downloaded {len(data):,d} B (expected {content_len:,d} B) from {url}')
+        return data, content_len
+
     # region Image Methods
 
     def get_page_image_titles(self, titles: Titles) -> dict[str, list[str]]:
         """
+        Get the titles of all images present on each of the pages with the specified titles.
+
+        Note: If a page title containing underscores is provided, it will be converted to its canonical form in the
+        output from this method, which may contain spaces instead of underscores.
+
         :param titles: One or more page titles
         :return: Mapping of {page title: [image titles]}
         """
@@ -416,35 +433,55 @@ class MediaWikiClient(RequestsClient):
             img_titles.update(results)
         return img_titles
 
-    def get_image_urls(self, titles: Titles) -> dict[str, str]:
+    def get_image_urls(self, image_titles: Titles) -> dict[str, str]:
         """
-        :param titles: One or more image titles (NOT page titles)
+        :param image_titles: One or more image titles (NOT page titles)
         :return: Mapping of {image title: download URL}
         """
-        needed, urls = self._cache.get_misc('imageinfo', titles)
+        needed, title_url_map = self._cache.get_misc('imageinfo', image_titles)
         if needed:
-            resp = Query.image_info(self, needed, 'url').get_results()
-            resp_urls = {  # Some entries may have missing: True and no imageinfo key
-                title: img_info[0]['url'] for title, data in resp.items() if (img_info := data.get('imageinfo'))
-            }
-            self._cache.store_misc('imageinfo', resp_urls)
-            urls.update(resp_urls)
-        return urls
+            new_title_url_map = _image_title_url_map(Query.image_info(self, needed, 'url').get_results())
+            self._cache.store_misc('imageinfo', new_title_url_map)
+            title_url_map.update(new_title_url_map)
+        return title_url_map
 
-    def get_page_image_urls(self, titles: Titles) -> dict[str, dict[str, str]]:
+    def get_page_image_urls_bulk(self, page_titles: Titles) -> dict[str, dict[str, str]]:
         """
-        :param titles: One or more page titles (NOT image titles)
+        :param page_titles: One or more page titles (NOT image titles)
         :return: Mapping of {page title: {image title: image URL}}
         """
-        page_image_title_map = self.get_page_image_titles(titles)
+        page_image_title_map = self.get_page_image_titles(page_titles)
+        all_image_titles = {img_title for img_titles in page_image_title_map.values() for img_title in img_titles}
+        all_image_urls = self.get_image_urls(all_image_titles)
         page_image_url_map = {
-            page_title: self.get_image_urls(image_titles) for page_title, image_titles in page_image_title_map.items()
+            page_title: {
+                img_title: url for img_title, url in ((img, all_image_urls.get(img)) for img in img_titles) if url
+            }
+            for page_title, img_titles in page_image_title_map.items()
         }
         return page_image_url_map
 
+    def get_page_image_urls(self, page_titles: Titles) -> dict[str, dict[str, str]]:
+        """
+        Note: If a page title containing underscores is provided, it will NOT be converted to its canonical form in the
+        output from this method.
+
+        :param page_titles: One or more page titles (NOT image titles)
+        :return: Mapping of {page title: {image title: image URL}}
+        """
+        needed, page_img_url_map = self._cache.get_misc('page_imageinfo', page_titles)
+        if needed:
+            new_page_img_url_map = {
+                page_title: _image_title_url_map(Query.page_image_info(self, page_title, 'url').get_results())
+                for page_title in needed
+            }
+            self._cache.store_misc('page_imageinfo', new_page_img_url_map)
+            page_img_url_map.update(new_page_img_url_map)
+        return page_img_url_map
+
     def get_image(self, title_or_url: str) -> bytes:
         try:
-            name = _image_name(title_or_url)
+            name = _normalize_file_name(title_or_url)
         except ValueError as e:
             log.debug(e)
             name = None
@@ -454,45 +491,25 @@ class MediaWikiClient(RequestsClient):
         except KeyError:
             pass
 
-        url = title_or_url if URL_MATCH(title_or_url) else self.get_image_urls(title_or_url)[title_or_url]
-        resp = self.get(url, relative=False, stream=True)
-        try:
-            content_len = int(resp.headers['Content-Length'])
-        except (ValueError, TypeError, KeyError):
-            content_len = 0
-        bio = BytesIO()
-        resp.raw.decode_content = True
-        copyfileobj(resp.raw, bio)
-        data = bio.getvalue()
-        log.debug(f'Downloaded {len(data):,d} B (expected {content_len:,d} B) from {url}')
-        if content_len and len(data) == content_len:
+        if URL_MATCH(title_or_url):
+            url = title_or_url
+        else:
+            url = self.get_image_urls(title_or_url)[title_or_url]
+
+        data, content_len = self._get_file_content(url)
+        if name and content_len and len(data) == content_len:
             self._cache.store_image(name, data)
         return data
 
     # endregion
 
 
-def _image_name(title_or_url: str) -> str:
-    try:
-        file_name_match = _image_name._file_name_match
-    except AttributeError:
-        file_name_match = _image_name._file_name_match = re.compile(r'.*\.\w{3,4}$').match
-
-    if URL_MATCH(title_or_url):
-        path = urlparse(title_or_url).path
-        while path and not file_name_match(path):
-            path = path.rsplit('/', 1)[0]
-        if file_name_match(path):
-            title = path.rsplit('/', 1)[-1]
-        else:
-            raise ValueError(f'Unable to determine filename from {title_or_url=}')
-    else:
-        title = title_or_url
-
-    if title.lower().startswith('file:'):
-        title = title.split(':', 1)[1]
-
-    return title
+def _image_title_url_map(results: TitleDataMap) -> dict[str, str]:
+    return {
+        title: img_info[0]['url']
+        for title, data in results.items()
+        if (img_info := data.get('imageinfo'))  # Some entries may have missing: True and no imageinfo key
+    }
 
 
 class PageQuery:
@@ -536,12 +553,11 @@ class PageQuery:
 
     def get_page(self, title: str) -> PageEntry:
         results = self.get_pages()
-        if not results:
-            raise PageMissingError(title, self.client.host)
         try:
             return results[title]
         except KeyError:
-            raise PageMissingError(title, self.client.host, f'but results were found for: {", ".join(sorted(results))}')
+            extra = f'but results were found for: {", ".join(sorted(results))}' if results else None
+            raise PageMissingError(title, self.client.host, extra)
 
     @cached_property
     def needed(self) -> set[str]:

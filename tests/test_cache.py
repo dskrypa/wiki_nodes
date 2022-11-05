@@ -36,14 +36,18 @@ class CacheTest(TestCase):
 
     def test_reset_hard(self):
         with wiki_cache('', img_dir=':memory:') as cache:
+            dir_path = cache.base_dir.joinpath('bar.db')
+            dir_path.mkdir()
             other_path = cache.base_dir.joinpath('foo.bar')
             db_path = cache.base_dir.joinpath('foo.db')
             other_path.touch()
             db_path.touch()
             cache.reset_caches()
+            self.assertTrue(dir_path.exists())
             self.assertTrue(other_path.exists())
             self.assertTrue(db_path.exists())
             cache.reset_caches(True)
+            self.assertTrue(dir_path.exists())
             self.assertTrue(other_path.exists())
             self.assertFalse(db_path.exists())
 

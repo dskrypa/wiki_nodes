@@ -1,0 +1,59 @@
+{
+    "batchcomplete": true,
+    "query": {
+        "pages": [
+            {
+                "imageinfo": [
+                    {
+                        "descriptionshorturl": "https://kpop.fandom.com/index.php?curid=32776",
+                        "descriptionurl": "https://kpop.fandom.com/wiki/File:(G)I-DLE_I_Made_announcement_teaser.png",
+                        "url": "https://static.wikia.nocookie.net/kpop/images/a/a6/%28G%29I-DLE_I_Made_announcement_teaser.png/revision/latest?cb=20190210153031"
+                    }
+                ],
+                "imagerepository": "local",
+                "ns": 6,
+                "pageid": 32776,
+                "title": "File:(G)I-DLE I Made announcement teaser.png"
+            },
+            {
+                "imageinfo": [
+                    {
+                        "descriptionshorturl": "https://kpop.fandom.com/index.php?curid=32953",
+                        "descriptionurl": "https://kpop.fandom.com/wiki/File:(G)I-DLE_I_Made_tracklist.png",
+                        "url": "https://static.wikia.nocookie.net/kpop/images/4/4b/%28G%29I-DLE_I_Made_tracklist.png/revision/latest?cb=20190213210133"
+                    }
+                ],
+                "imagerepository": "local",
+                "ns": 6,
+                "pageid": 32953,
+                "title": "File:(G)I-DLE I Made tracklist.png"
+            },
+            {
+                "imageinfo": [
+                    {
+                        "descriptionshorturl": "https://kpop.fandom.com/index.php?curid=33123",
+                        "descriptionurl": "https://kpop.fandom.com/wiki/File:(G)I-DLE_I_Made_physical_album_cover.png",
+                        "url": "https://static.wikia.nocookie.net/kpop/images/8/8c/%28G%29I-DLE_I_Made_physical_album_cover.png/revision/latest?cb=20190218052609"
+                    }
+                ],
+                "imagerepository": "local",
+                "ns": 6,
+                "pageid": 33123,
+                "title": "File:(G)I-DLE I Made physical album cover.png"
+            },
+            {
+                "imageinfo": [
+                    {
+                        "descriptionshorturl": "https://kpop.fandom.com/index.php?curid=33513",
+                        "descriptionurl": "https://kpop.fandom.com/wiki/File:(G)I-DLE_I_Made_digital_cover_art.png",
+                        "url": "https://static.wikia.nocookie.net/kpop/images/b/b0/%28G%29I-DLE_I_Made_digital_cover_art.png/revision/latest?cb=20190307015212"
+                    }
+                ],
+                "imagerepository": "local",
+                "ns": 6,
+                "pageid": 33513,
+                "title": "File:(G)I-DLE I Made digital cover art.png"
+            }
+        ]
+    }
+}

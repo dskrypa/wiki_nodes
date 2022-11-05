@@ -1,0 +1,19 @@
+{
+    "batchcomplete": true,
+    "query": {
+        "normalized": [{"fromencoded": false, "from": "I_Made", "to": "I Made"}],
+        "pages": [
+            {
+                "pageid": 32777,
+                "ns": 0,
+                "title": "I Made",
+                "images": [
+                    {"ns": 6, "title": "File:(G)I-DLE I Made announcement teaser.png"},
+                    {"ns": 6, "title": "File:(G)I-DLE I Made digital cover art.png"},
+                    {"ns": 6, "title": "File:(G)I-DLE I Made physical album cover.png"},
+                    {"ns": 6, "title": "File:(G)I-DLE I Made tracklist.png"}
+                ]
+            }
+        ]
+    }
+}

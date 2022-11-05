@@ -145,6 +145,11 @@ class WikiPage(Root):
             return self._client.url_for_article(self.title)
         raise AttributeError('Unable to determine URL when not initialized via MediaWikiClient')
 
+    @cached_property
+    def image_urls(self) -> dict[str, str]:
+        """Mapping of {image title: url} for all images on this page."""
+        return self._client.get_page_image_urls(self.title)[self.title]
+
     # endregion
 
     # region Content

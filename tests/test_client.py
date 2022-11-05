@@ -1,21 +1,24 @@
 #!/usr/bin/env python
 
 from copy import deepcopy
+from io import BytesIO
 from json import JSONDecodeError
-from unittest import TestCase, main
+from unittest import main
 from unittest.mock import Mock, patch
 
 from wiki_nodes import MediaWikiClient
 from wiki_nodes.exceptions import InvalidWikiError
 from wiki_nodes.http.query import Query
 from wiki_nodes.http.utils import _normalize_params
-from wiki_nodes.testing import WikiNodesTest, mocked_client, get_siteinfo
+from wiki_nodes.testing import WikiNodesTestBase, WikiNodesTest, mocked_client, get_siteinfo
+from wiki_nodes.testing import get_api_resp_data, mock_response, wiki_cache
 from wiki_nodes.version import LooseVersion
 
 SITE = 'en.wikipedia.org'
+KPOP_FANDOM = 'kpop.fandom.com'
 
 
-class WikiClientNoGlobalMockTest(TestCase):
+class WikiClientNoCacheMocksTest(WikiNodesTestBase):
     def setUp(self):
         MediaWikiClient._instances.clear()
         MediaWikiClient._siteinfo_cache = None
@@ -28,7 +31,7 @@ class WikiClientNoGlobalMockTest(TestCase):
             ttl_db_cache_mock.assert_called()
 
     def test_client_siteinfo(self):
-        get_mocks = [Mock(json=Mock(return_value={'query': get_siteinfo(SITE)})), Mock()]
+        get_mocks = [mock_response({'query': get_siteinfo(SITE)}), Mock()]
         MediaWikiClient._siteinfo_cache = {}
         with patch.object(MediaWikiClient, 'get', side_effect=get_mocks):
             client = MediaWikiClient(SITE)
@@ -36,6 +39,35 @@ class WikiClientNoGlobalMockTest(TestCase):
             get_mocks[0].json.assert_called()
             self.assertEqual(2, len(client.siteinfo))
             get_mocks[1].json.assert_not_called()
+
+    def test_get_page_image_urls(self):
+        title = 'I Made'
+        expected = {
+            'File:(G)I-DLE I Made announcement teaser.png': 'https://static.wikia.nocookie.net/kpop/images/a/a6/%28G%29I-DLE_I_Made_announcement_teaser.png/revision/latest?cb=20190210153031',
+            'File:(G)I-DLE I Made tracklist.png': 'https://static.wikia.nocookie.net/kpop/images/4/4b/%28G%29I-DLE_I_Made_tracklist.png/revision/latest?cb=20190213210133',
+            'File:(G)I-DLE I Made physical album cover.png': 'https://static.wikia.nocookie.net/kpop/images/8/8c/%28G%29I-DLE_I_Made_physical_album_cover.png/revision/latest?cb=20190218052609',
+            'File:(G)I-DLE I Made digital cover art.png': 'https://static.wikia.nocookie.net/kpop/images/b/b0/%28G%29I-DLE_I_Made_digital_cover_art.png/revision/latest?cb=20190307015212',
+        }
+
+        with self.subTest(method='get_page_image_urls'), wiki_cache('', base_dir=':memory:') as cache:
+            with patch.object(MediaWikiClient, 'get', return_value=mock_response(get_api_resp_data('i_made_images'))):
+                client = mocked_client(KPOP_FANDOM, wiki_cache=cache)
+                page_img_url_map = client.get_page_image_urls(title)
+                self.assertEqual(1, len(page_img_url_map))
+                self.assertDictEqual(expected, page_img_url_map[title])
+                self.assertDictEqual({title: expected}, client.get_page_image_urls(title))  # test from cache
+
+        responses = [
+            mock_response(get_api_resp_data('i_made_image_titles')),
+            mock_response(get_api_resp_data('i_made_images')),
+        ]
+        with self.subTest(method='get_page_image_urls_bulk'), wiki_cache('', base_dir=':memory:') as cache:
+            with patch.object(MediaWikiClient, 'get', side_effect=responses):
+                client = mocked_client(KPOP_FANDOM, wiki_cache=cache)
+                page_img_url_map = client.get_page_image_urls_bulk(title)
+                self.assertEqual(1, len(page_img_url_map))
+                self.assertDictEqual(expected, page_img_url_map[title])
+                self.assertDictEqual({title: expected}, client.get_page_image_urls_bulk(title))  # test from cache
 
 
 class WikiClientTest(WikiNodesTest):
@@ -89,7 +121,7 @@ class WikiClientTest(WikiNodesTest):
 
     def test_client_siteinfo_invalid(self):
         MediaWikiClient._siteinfo_cache = {}
-        resp = Mock(json=Mock(side_effect=JSONDecodeError('', '', 0)), url='hxxp://foo/bar')
+        resp = mock_response(JSONDecodeError('', '', 0), url='hxxp://foo/bar')
         with patch.object(MediaWikiClient, 'get', return_value=resp):
             client = MediaWikiClient(SITE)
             with self.assertRaisesRegex(InvalidWikiError, f'Invalid site: {SITE!r}'):
@@ -97,7 +129,7 @@ class WikiClientTest(WikiNodesTest):
 
     def test_client_siteinfo_invalid_community(self):
         MediaWikiClient._siteinfo_cache = {}
-        resp = Mock(json=Mock(side_effect=JSONDecodeError('', '', 0)), url='hxxp://foo/Not_a_valid_community/?from=bar')
+        resp = mock_response(JSONDecodeError('', '', 0), url='hxxp://foo/Not_a_valid_community/?from=bar')
         with patch.object(MediaWikiClient, 'get', return_value=resp):
             client = MediaWikiClient(SITE)
             with self.assertRaisesRegex(InvalidWikiError, "Invalid site: 'bar'"):
@@ -105,7 +137,7 @@ class WikiClientTest(WikiNodesTest):
 
     def test_client_siteinfo_invalid_community_error(self):
         MediaWikiClient._siteinfo_cache = {}
-        resp = Mock(json=Mock(side_effect=JSONDecodeError('', '', 0)), url='hxxp://foo/Not_a_valid_community/')
+        resp = mock_response(JSONDecodeError('', '', 0), url='hxxp://foo/Not_a_valid_community/')
         with patch.object(MediaWikiClient, 'get', return_value=resp):
             client = MediaWikiClient(SITE)
             with self.assertRaisesRegex(InvalidWikiError, f'Invalid site: {SITE!r}'):
@@ -132,6 +164,13 @@ class WikiClientTest(WikiNodesTest):
         with patch('wiki_nodes.http.client.Parse.page') as parse_mock:
             client.parse_page('foo')
             parse_mock.assert_called_with(client, 'foo')
+
+    def test_get_file_content(self):
+        with patch.object(MediaWikiClient, 'get', return_value=mock_response(raw=BytesIO(b'abc'))):
+            self.assertEqual((b'abc', 0), MediaWikiClient(SITE)._get_file_content('test'))
+        resp = mock_response(raw=BytesIO(b'abc'), headers={'Content-Length': 3})
+        with patch.object(MediaWikiClient, 'get', return_value=resp):
+            self.assertEqual((b'abc', 3), MediaWikiClient(SITE)._get_file_content('test'))
 
 
 if __name__ == '__main__':
