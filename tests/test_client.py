@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 
 from wiki_nodes import MediaWikiClient
 from wiki_nodes.exceptions import InvalidWikiError
-from wiki_nodes.http.query import Query
 from wiki_nodes.http.utils import _normalize_params
 from wiki_nodes.testing import WikiNodesTestBase, WikiNodesTest, mocked_client, get_siteinfo
 from wiki_nodes.testing import get_api_resp_data, mock_response, wiki_cache
@@ -97,11 +96,6 @@ class WikiClientTest(WikiNodesTest):
 
     def test_old_version_normalize_params(self):
         self.assertNotIn('formatversion', _normalize_params({}, LooseVersion('1.1')))
-
-    def test_prepare_query_params_basic(self):
-        params = Query(mocked_client(SITE)).params
-        expected = {'action': 'query', 'redirects': 1}
-        self.assertDictEqual(expected, params)
 
     def test_client_repr(self):
         self.assertEqual(f'<MediaWikiClient({SITE})>', repr(MediaWikiClient(SITE)))

@@ -17,7 +17,7 @@ from .utils import TitleDataMap, Titles, _normalize_params, _multi_value_param
 
 if TYPE_CHECKING:
     from requests import Response
-    from ..typing import StrOrStrs
+    from ..typing import StrOrStrs, OptStr
     from .client import MediaWikiClient
 
 __all__ = ['Query', 'QueryResponse', 'PageData']
@@ -41,6 +41,7 @@ class Query:
     :param params: Query API parameters
     """
     __slots__ = ('client', 'params', 'titles', '_responses')
+    max_titles_per_query: int = 50
     client: MediaWikiClient
     params: dict[str, Any]
     titles: StrOrStrs
@@ -61,7 +62,7 @@ class Query:
 
     @classmethod
     def search(
-        cls, client: MediaWikiClient, query: str, search_type: str = 'nearmatch', limit: int = 10, offset: int = None
+        cls, client: MediaWikiClient, query: str, search_type: OptStr = 'nearmatch', limit: int = 10, offset: int = None
     ) -> Query:
         params = {
             # 'srprop': ['timestamp', 'snippet', 'redirecttitle', 'categorysnippet']
@@ -134,9 +135,12 @@ class Query:
                 except KeyError:
                     title_page_map[title] = new_page_data
                 else:
-                    page_data.update(new_page_data.data)
+                    page_data.update(new_page_data)
 
-        return {title: page.data for title, page in title_page_map.items()}
+        try:
+            return {title: page.data for title, page in title_page_map.items()}
+        except AttributeError:
+            return title_page_map  # noqa
 
     def get_responses(self) -> list[QueryResponse]:
         return [query_resp for query_resp, _ in self._iter_responses()]
@@ -151,16 +155,16 @@ class Query:
             if isinstance(titles, str):
                 params['titles'] = titles
                 yield params
-            elif len(titles) <= 50:
+            elif len(titles) <= self.max_titles_per_query:
                 params['titles'] = _multi_value_param(titles)
                 yield params
             else:
-                for group in partitioned(list(titles), 50):
+                for group in partitioned(list(titles), self.max_titles_per_query):
                     yield {'titles': _multi_value_param(group), **params}
         else:
             yield params
 
-    def _iter_responses(self) -> Iterator[tuple[QueryResponse, PageDataMap]]:
+    def _iter_responses(self) -> Iterator[tuple[QueryResponse, PageDataMap | TitleDataMap]]:
         try:
             responses = self._responses
         except AttributeError:
@@ -173,7 +177,9 @@ class Query:
             for query_resp in responses:
                 yield query_resp, query_resp.parse()[0]
 
-    def _iter_paginated_responses(self, params: dict[str, Any]) -> Iterator[tuple[QueryResponse, PageDataMap]]:
+    def _iter_paginated_responses(
+        self, params: dict[str, Any]
+    ) -> Iterator[tuple[QueryResponse, PageDataMap | TitleDataMap]]:
         query_resp = QueryResponse(self, self.client.get('api.php', params=params))
         title_page_map, prop_continue, other_continue = query_resp.parse()
         yield query_resp, title_page_map
@@ -212,7 +218,7 @@ class QueryResponse:
         except KeyError:
             return response
         except TypeError:
-            log.warning(f'Response from {self.resp.url} was not a dict; found: {response}')
+            log.warning(f'Response from {self.resp.url} was not a dict; found: {response!r}')
             return {}
 
         if 'query' not in response:
@@ -222,7 +228,7 @@ class QueryResponse:
 
         return response
 
-    def parse(self) -> tuple[PageDataMap, Any, Any]:
+    def parse(self) -> tuple[PageDataMap | TitleDataMap, Any, Any]:
         try:
             return self._parsed
         except AttributeError:
@@ -311,7 +317,11 @@ class PageData:
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.title!r}]>'
 
-    def update(self, data: dict[str, Any]):
+    def update(self, data: PageData | dict[str, Any]):
+        try:
+            data = data.data
+        except AttributeError:
+            pass
         for key, val in data.items():
             if key == 'iwlinks':
                 self._update_iw_links(val)
