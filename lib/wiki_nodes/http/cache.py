@@ -66,15 +66,6 @@ class WikiCache:
         self.normalized_titles = DBCache('normalized_titles', cache_dir=cache_dir, time_fmt='%Y')
         self.misc = TTLDBCache('misc', cache_dir=cache_dir, ttl=self.ttl)
 
-    def store_response(self, resp: Response):
-        now = datetime.now()
-        resp_dir = self.base_dir.joinpath('responses', now.strftime('%Y-%m-%d'))
-        if not resp_dir.exists():
-            resp_dir.mkdir(parents=True)
-        resp_dir.joinpath(f'{now.timestamp()}.url').write_text(resp.url + '\n', encoding='utf-8')
-        with resp_dir.joinpath(f'{now.timestamp()}.pkl').open('wb') as f:
-            pickle.dump(resp, f)
-
     def get_misc(self, group: str, titles: Titles) -> tuple[list[str], dict[str, Any]]:
         titles = [titles] if isinstance(titles, str) else titles
         needed = []

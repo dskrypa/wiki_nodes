@@ -35,12 +35,12 @@ qlog = logging.getLogger(__name__ + '.query')
 qlog.setLevel(logging.WARNING)
 
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
+HOST_PATH_PREFIX_MAP = {'en.wikipedia.org': 'w', 'www.generasia.com': 'w'}
 
 
 class MediaWikiClient(RequestsClient):
-    _pickle_queries = False
     _siteinfo_cache = None
-    _instances = {}             # type: dict[str, MediaWikiClient]
+    _instances: dict[str, MediaWikiClient] = {}
 
     def __new__(cls, host_or_url: str, *args, **kwargs):
         host = urlparse(host_or_url).hostname if URL_MATCH(host_or_url) else host_or_url
@@ -60,10 +60,14 @@ class MediaWikiClient(RequestsClient):
             if not URL_MATCH(host_or_url):
                 kwargs.setdefault('scheme', 'https')
             super().__init__(host_or_url, *args, **kwargs)
-            if self.host in ('en.wikipedia.org', 'www.generasia.com'):
-                self.path_prefix = 'w'
+            try:
+                self.path_prefix = HOST_PATH_PREFIX_MAP[self.host]
+            except KeyError:
+                pass
             self.__init()
             self._cache = WikiCache(self.host, ttl)
+
+    # region Internal Methods
 
     def __init(self):
         if MediaWikiClient._siteinfo_cache is None:
@@ -87,6 +91,8 @@ class MediaWikiClient(RequestsClient):
 
     def __getnewargs__(self):
         return (self.host,)
+
+    # endregion
 
     @cached_property
     def siteinfo(self) -> dict[str, Any]:
