@@ -8,20 +8,33 @@ from __future__ import annotations
 
 import json
 import sys
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from difflib import unified_diff
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
-from typing import Any
+from tempfile import TemporaryDirectory
+from typing import Any, ContextManager
 from unittest import TestCase
 from unittest.mock import Mock, seal, patch
 
-from .http.cache import  WikiCache
+from requests_client import RequestsClient
+
+from .http.cache import WikiCache
 from .http.client import MediaWikiClient
 from .utils import rich_repr
 
-__all__ = ['WikiNodesTest', 'format_diff', 'sealed_mock', 'RedirectStreams', 'mocked_client', 'get_siteinfo']
+__all__ = [
+    'WikiNodesTest',
+    'format_diff',
+    'sealed_mock',
+    'RedirectStreams',
+    'mocked_client',
+    'get_siteinfo',
+    'get_api_resp_data',
+    'mock_response',
+    'wiki_cache',
+]
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[2].joinpath('tests', 'data')
 
@@ -30,17 +43,25 @@ class WikiNodesTest(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._mwc_request_patch = patch.object(MediaWikiClient, 'request')  # Prevent any actual requests from leaking
+        # Prevent any actual requests from leaking
+        cls._mwc_request_patch = patch.object(MediaWikiClient, 'request')
         cls._mwc_request_patch.start()  # noqa
+        # Avoid relatively heavy introspection during frequent client init
+        cls._generate_user_agent_patch = patch('requests_client.client.generate_user_agent', return_value='FAKE_UA')
+        cls._generate_user_agent_patch.start()  # noqa
+        # Prevent unintended fs access
         cls._wiki_cache_reset_patch = patch.object(WikiCache, 'reset_caches')
         cls._wiki_cache_reset_patch.start()  # noqa
+        # Prevent unintended dir/file creation
         cls._wiki_cache_init_patch = patch.object(WikiCache, '__init__', return_value=None)
         cls._wiki_cache_init_patch.start()  # noqa
+        # Prevent TTLDBCache init during client instance init
         MediaWikiClient._siteinfo_cache = Mock()
 
     @classmethod
     def tearDownClass(cls):
         cls._mwc_request_patch.stop()  # noqa
+        cls._generate_user_agent_patch.stop()  # noqa
         cls._wiki_cache_reset_patch.stop()  # noqa
         cls._wiki_cache_init_patch.stop()  # noqa
 
@@ -177,6 +198,18 @@ def get_siteinfo(site: str):
         return json.load(f)
 
 
+@lru_cache(5)
+def get_api_resp_data(name: str):
+    with TEST_DATA_DIR.joinpath('api_responses').joinpath(f'{name}.json').open('r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def mock_response(json_data=None, **kwargs):
+    if not isinstance(json_data, list):
+        json_data = [json_data]
+    return Mock(json=Mock(side_effect=json_data), **kwargs)
+
+
 def mocked_client(site: str):
     client = MediaWikiClient(site)
     try:
@@ -187,3 +220,12 @@ def mocked_client(site: str):
         client.__dict__['siteinfo'] = siteinfo
 
     return client
+
+
+@contextmanager
+def wiki_cache(*args, **kwargs) -> ContextManager[WikiCache]:
+    with TemporaryDirectory() as td:
+        temp_dir = Path(td)
+        kwargs.setdefault('base_dir', temp_dir.joinpath('base'))
+        kwargs.setdefault('img_dir', temp_dir.joinpath('img'))
+        yield WikiCache(*args, **kwargs)
