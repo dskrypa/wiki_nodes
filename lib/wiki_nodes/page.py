@@ -112,6 +112,17 @@ class WikiPage(Root):
     def as_link(self) -> Link:
         return Link.from_title(self.title, self)
 
+    @cached_property
+    def title_link_map(self) -> dict[str, Link]:
+        """Mapping of link titles to their Link objects"""
+        return {link.title: link for link in self.find_all(Link)}
+
+    @cached_property
+    def link_map(self) -> dict[str, Link]:
+        """Mapping of both link titles and visible text to their Link objects"""
+        title_link_map = self.title_link_map
+        return title_link_map | {link.show: link for link in title_link_map.values()}
+
     def links(self, unique: bool = True, special: bool = False, interwiki: bool = False) -> set[Link]:
         """
         :param unique: Only include links with unique titles
@@ -148,7 +159,8 @@ class WikiPage(Root):
     @cached_property
     def image_urls(self) -> dict[str, str]:
         """Mapping of {image title: url} for all images on this page."""
-        return self._client.get_page_image_urls(self.title)[self.title]
+        # using next(iter(...)) in case of title normalization throwing off the key
+        return next(iter(self._client.get_page_image_urls(self.title).values()))
 
     # endregion
 
