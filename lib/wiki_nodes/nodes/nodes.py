@@ -1066,7 +1066,7 @@ class Template(BasicNode, attr='templates'):
             if isinstance(value, Node):
                 yield from _find_all(value, node_cls, recurse, **kwargs)
             elif isinstance(value, Mapping):
-                for key, val in value.values():
+                for key, val in value.items():
                     if isinstance(key, Node):
                         yield from _find_all(val, node_cls, recurse, recurse, **kwargs)
                     if isinstance(val, Node):
