@@ -55,7 +55,10 @@ def _init_globals():
 
 
 def as_node(
-    text: Union[str, WikiText, None], root: Root = None, preserve_comments: bool = False, strict_tags: bool = False
+    text: Union[str, WikiText, None],
+    root: Root = None,
+    preserve_comments: bool = False,
+    strict_tags: bool = False,
 ):
     # c = next(as_node_counter)
     # log.debug(f'[{c}] as_node({short_repr(text)})', extra={'color': 13})
@@ -101,15 +104,14 @@ def get_span_obj_map(wiki_text: WikiText, preserve_comments: bool = False, stric
             # log.debug(f'For {wtp_type=}, processing {span=} with {attr_values=}')
             obj = attr_values[span]
             if strict_tags and attr == 'get_tags':
-                obj_str = obj.string
+                obj_str: str = obj.string
                 if obj.contents.strip():
                     if not obj_str.endswith(f'</{obj.name}>'):
                         log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
                         attr = 'string'
-                else:
-                    if obj_str != f'<{obj.name}/>':     # self-closing
-                        log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
-                        attr = 'string'
+                elif not (obj_str.startswith(f'<{obj.name}') and obj_str.endswith('/>')):  # self-closing
+                    log.log(9, f'Treating {obj_str!r} as a string because strict_tags=True')
+                    attr = 'string'
             elif not preserve_comments and attr == 'comments':
                 attr = None
 

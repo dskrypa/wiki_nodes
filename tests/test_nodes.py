@@ -42,6 +42,18 @@ class NodeParsingTest(WikiNodesTest):
         expected.children.extend([String('"'), Link.from_title('title', text='text'), String('" - 3:30')])
         self.assertEqual(node, expected)
 
+    def test_self_closing_tag(self):
+        self.assertIsInstance(as_node('<ref name="DeluxeCD"/>'), Tag)
+        self.assertIsInstance(as_node('<ref name="DeluxeCD"/>', strict_tags=True), Tag)
+        self.assertIsInstance(as_node('<br/>'), Tag)
+        self.assertIsInstance(as_node('<br/>', strict_tags=True), Tag)
+
+    def test_unclosed_tag(self):
+        self.assertIsInstance(as_node('<br>'), Tag)
+        self.assertIsInstance(as_node('<br>', strict_tags=True), String)
+
+    # def test
+
     # endregion
 
     # region repr & pprint
