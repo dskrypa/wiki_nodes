@@ -51,6 +51,8 @@ AnyNode = Union[
 ]
 
 _NotSet = object()
+# TODO: Add way for .strings() to skip particular nodes, ideally in a way that allows multiple criteria to be specified
+#  for a single call.  I.e., `Tag with name='ref'` + `Section with title='References'`
 
 
 class Node(ClearableCachedPropertyMixin):
@@ -1063,7 +1065,13 @@ class Template(BasicNode, attr='templates'):
         if value := self.value:
             if isinstance(value, Node):
                 yield from _find_all(value, node_cls, recurse, **kwargs)
-            else:
+            elif isinstance(value, Mapping):
+                for key, val in value.values():
+                    if isinstance(key, Node):
+                        yield from _find_all(val, node_cls, recurse, recurse, **kwargs)
+                    if isinstance(val, Node):
+                        yield from _find_all(val, node_cls, recurse, recurse, **kwargs)
+            elif isinstance(value, Iterable) and not isinstance(value, str):
                 for node in value:
                     yield from _find_all(node, node_cls, recurse, recurse, **kwargs)
 
