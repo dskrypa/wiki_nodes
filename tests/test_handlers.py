@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import main
 from unittest.mock import Mock
@@ -158,6 +159,25 @@ class TemplateTest(WikiNodesTest):
             _ = Template('{{test|k1=a|v1=1|k2=b|v2=2|k3=}}').zipped
 
         self.assertTrue(any('Unexpected zip key=' in line for line in log_ctx.output))
+
+    def test_start_date(self):
+        tz_1 = timezone(timedelta(seconds=3600))
+        tz_7 = timezone(timedelta(days=-1, seconds=61200))
+        cases = {
+            '{{start date|1993}}': datetime(1993, 1, 1),
+            '{{start date|1993|02}}': datetime(1993, 2, 1),
+            '{{start date|1993|02|24}}': datetime(1993, 2, 24),
+            '{{start date|1993|02|24|08|30}}': datetime(1993, 2, 24, 8, 30),
+            '{{start date|1993|02|24|08|||+01:00}}': datetime(1993, 2, 24, 8, tzinfo=tz_1),
+            '{{start date|1993|02|24|08|||-07:00}}': datetime(1993, 2, 24, 8, tzinfo=tz_7),
+            '{{start date|1993|02|24|08|30|23}}': datetime(1993, 2, 24, 8, 30, 23),
+            '{{start date|1993|02|24|08|30|23|Z}}': datetime(1993, 2, 24, 8, 30, 23, tzinfo=timezone.utc),
+            '{{start date|1993|02|24|08|30|23|+01:00}}': datetime(1993, 2, 24, 8, 30, 23, tzinfo=tz_1),
+            '{{start date|1993|02|24|08|30|23|-07:00}}': datetime(1993, 2, 24, 8, 30, 23, tzinfo=tz_7),
+        }
+        for tmpl_str, expected in cases.items():
+            with self.subTest(tmpl_str=tmpl_str):
+                self.assertEqual(expected, as_node(tmpl_str).value)
 
 
 if __name__ == '__main__':

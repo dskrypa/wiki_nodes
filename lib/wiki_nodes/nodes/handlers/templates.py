@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import re
 from abc import ABC
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from ...utils import strip_style
@@ -291,15 +292,34 @@ class WikipediaHandler(TemplateHandler, ABC, site='en.wikipedia.org'):
     __slots__ = ()
 
 
-# class WikipediaStartDateHandler(WikipediaHandler, for_name='start date'):
-#     __slots__ = ()
-#
-#
+class WikipediaStartDateHandler(WikipediaHandler, for_names=('start date', 'end date')):
+    __slots__ = ()
+
+    # TODO: https://en.wikipedia.org/wiki/Template:Start-date / Template:End-date / Template:Film_date /
+    #  Template:Start_date_and_age /  Template:Start_date_and_years_ago / Template:Start_and_end_dates support
+    #  some parts as string values, and some of these support 2 dates instead of 1
+
+    def get_value(self) -> Optional[datetime]:
+        if not (args := self.node.raw.arguments):
+            return None
+
+        pos_args = [arg.value for arg in args if arg.positional]
+        try:
+            tz = datetime.strptime(pos_args[6], '%z').tzinfo
+        except (IndexError, ValueError):
+            tz = None
+        parts = [int(part) if part else 0 for part in pos_args[:6]]
+        to_add = 3 - len(parts)
+        if to_add > 0:
+            parts.extend(1 for _ in range(to_add))
+        return datetime(*parts, tzinfo=tz)
+
+
 # class WikipediaHorizontalListHandler(WikipediaHandler, for_name='hlist'):
 #     __slots__ = ()
 
 
-class WikipediaTrackListHandler(WikipediaHandler, for_name='tracklist', basic=False):
+class WikipediaTrackListHandler(WikipediaHandler, for_names=('tracklist', 'track listing'), basic=False):
     __slots__ = ()
 
     def get_value(self):
@@ -312,8 +332,8 @@ class WikipediaTrackListHandler(WikipediaHandler, for_name='tracklist', basic=Fa
         return {'meta': meta, 'tracks': rows}
 
 
-class WikipediaTrackListingHandler(WikipediaTrackListHandler, for_name='track listing', basic=False):
-    __slots__ = ()
+# class WikipediaTrackListingHandler(WikipediaTrackListHandler, for_name='track listing', basic=False):
+#     __slots__ = ()
 
 
 # endregion
