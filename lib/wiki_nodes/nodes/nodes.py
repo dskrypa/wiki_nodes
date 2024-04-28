@@ -915,7 +915,8 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         first_row = next(iter(self.raw.cells()))
         if not any(cell is not None and cell.is_header for cell in first_row):
             return []
-        return [int(cell.attrs.get('rowspan', 1)) if cell is not None else 1 for cell in first_row]
+        span_strs = (cell.attrs.get('rowspan', 1) if cell is not None else 1 for cell in first_row)
+        return [1 if row_span == '' else int(row_span) for row_span in span_strs]
 
     @cached_property
     def _raw_headers(self):
