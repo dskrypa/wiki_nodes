@@ -168,16 +168,16 @@ class MediaWikiClient(RequestsClient):
     def article_url_to_title(self, url: str) -> str:
         if url.startswith(self.article_url_prefix):
             return url[len(self.article_url_prefix):]
-        else:
-            parsed = urlparse(url)
-            uri_path = unquote(parsed.path)
-            title = uri_path.replace(self.article_path_prefix, '', 1)
-            if url.endswith('?') and not title.endswith('?'):  # TODO: Is this necessary?
-                log.debug(f'TODO_CASE: Encountered {url=} ending in ? with {title=} not ending in ?')
-                title += '?'
-            elif parsed.query and not parse_qs(parsed.query):
-                title = f'{title}?{parsed.query}'
-            return title
+
+        parsed = urlparse(url)
+        uri_path = unquote(parsed.path)
+        title = uri_path.replace(self.article_path_prefix, '', 1)
+        if url.endswith('?') and not title.endswith('?'):  # TODO: Is this necessary?
+            log.debug(f'TODO_CASE: Encountered {url=} ending in ? with {title=} not ending in ?')
+            title += '?'
+        elif parsed.query and not parse_qs(parsed.query):
+            title = f'{title}?{parsed.query}'
+        return title
 
     def url_for_article(self, title: str) -> str:
         # gen_info = self.siteinfo['general']  # Note: gen_info['server'] may use http when https is supported
@@ -292,14 +292,13 @@ class MediaWikiClient(RequestsClient):
         gsrwhat: str = 'nearmatch',
     ) -> dict[str, WikiPage]:
         raw_pages = self.query_pages(titles, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
-        pages = {
+        return {
             result_title: WikiPage(
                 data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
                 self._merged_interwiki_map, self
             )
             for result_title, data in raw_pages.items()
         }   # The result_title may have redirected to the actual title
-        return pages
 
     def get_page(
         self,
@@ -310,11 +309,10 @@ class MediaWikiClient(RequestsClient):
         gsrwhat: str = 'nearmatch',
     ) -> WikiPage:
         data = self.query_page(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
-        page = WikiPage(
+        return WikiPage(
             data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
             self._merged_interwiki_map, self
         )
-        return page
 
     @classmethod
     def page_for_article(cls, article_url: str, preserve_comments=False, no_cache=False) -> WikiPage:
@@ -332,28 +330,28 @@ class MediaWikiClient(RequestsClient):
         gsrwhat: str = 'nearmatch',
     ) -> tuple[dict[str, WikiPage], dict[str, Exception]]:
         """
-        :param str title: A page title
-        :param iterable sites: A list or other iterable that yields site host strings
-        :param bool preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
-        :param bool search: Whether the provided title should also be searched for, in case there is not an exact match.
-        :param bool no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
-        :param str gsrwhat: The search type to use when search is True
-        :return tuple: Tuple containing mappings of {site: WikiPage}, {site: errors}
+        :param title: A page title
+        :param sites: A list or other iterable that yields site host strings
+        :param preserve_comments: Whether HTML comments should be dropped or included in parsed nodes
+        :param search: Whether the provided title should also be searched for, in case there is not an exact match.
+        :param no_cache: Bypass the page cache, and retrieve a fresh version of the specified page(s)
+        :param gsrwhat: The search type to use when search is True
+        :return: Tuple containing mappings of {site: WikiPage}, {site: errors}
         """
         clients = [cls(site, nopath=True) for site in sites]
         with ThreadPoolExecutor(max_workers=max(1, len(clients))) as executor:
-            _futures = {
+            futures = {
                 executor.submit(client.get_page, title, preserve_comments, search, no_cache, gsrwhat): client.host
                 for client in clients
             }
             results = {}
             errors = {}
-            for future in as_completed(_futures):
-                site = _futures[future]
+            for future in as_completed(futures):
+                site = futures[future]
                 try:
                     results[site] = future.result()
                 except (RequestException, PageMissingError, InvalidWikiError) as e:
-                    log.error(f'Error retrieving page={title!r} from site={site}: {e}')
+                    log.error(f'Error retrieving page={title!r} from {site=!s}: {e}')
                     errors[site] = e
 
             return results, errors
@@ -380,14 +378,15 @@ class MediaWikiClient(RequestsClient):
             for site, titles in site_title_map.items()
         }
         with ThreadPoolExecutor(max_workers=max(1, len(client_title_map))) as executor:
-            _futures = {
+            # noinspection PyTypeChecker
+            futures = {
                 executor.submit(client.get_pages, titles, preserve_comments, search, no_cache, gsrwhat): client.host
                 for client, titles in client_title_map.items()
             }
             results = {}
             errors = {}
-            for future in as_completed(_futures):
-                site = _futures[future]
+            for future in as_completed(futures):
+                site = futures[future]
                 try:
                     results[site] = future.result()
                 except (RequestException, InvalidWikiError) as e:
@@ -407,7 +406,7 @@ class MediaWikiClient(RequestsClient):
 
         bio = BytesIO()
         resp.raw.decode_content = True
-        copyfileobj(resp.raw, bio)
+        copyfileobj(resp.raw, bio)  # noqa
         data = bio.getvalue()
         log.debug(f'Downloaded {len(data):,d} B (expected {content_len:,d} B) from {url}')
         return data, content_len
@@ -426,9 +425,11 @@ class MediaWikiClient(RequestsClient):
         """
         needed, img_titles = self._cache.get_misc('images', titles)
         if needed:
-            # resp = Query.image_titles(self, titles).get_results()
             resp = Query.image_titles(self, needed).get_results()
-            results = {title: [image['title'] for image in data.get('images', [])] for title, data in resp.items()}
+            results = {
+                title: [image['title'] for image in data.get('images', [])]
+                for title, data in resp.items()
+            }
             self._cache.store_misc('images', results)
             img_titles.update(results)
         return img_titles
@@ -513,6 +514,8 @@ def _image_title_url_map(results: TitleDataMap) -> dict[str, str]:
 
 
 class PageQuery:
+    _pages: dict[str, PageEntry]
+
     def __init__(
         self,
         client: MediaWikiClient,
@@ -526,30 +529,32 @@ class PageQuery:
         self._search = search
         self.no_cache = no_cache
         self._gsrwhat = gsrwhat
-        self._pages = {}  # type: dict[str, PageEntry]
+        self._pages = {}
         self._no_data = set()
         self._cache: WikiCache = client._cache
 
     def get_pages(self) -> dict[str, PageEntry]:
         if self.needed:
-            unquoted_need = set(map(unquote, self.needed))
-            resp = self.client.query(titles=unquoted_need, rvprop='content', prop=['revisions', 'categories'])
-            self._process_pages_resp(resp)
-            if self.missing and self._search:
-                missing = sorted(self.missing)
-                log.debug(f'Re-attempting retrieval of pages via searches: {missing}')
-                for title in missing:
-                    kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': self._gsrwhat}
-                    resp = self.client.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
-                    self._cache.search_titles[title] = list(resp)
-                    self._process_pages_resp(resp, self._gsrwhat == 'text')
-
-            for title in sorted(self._no_data.union(self.missing)):
-                if title not in self._cache.pages:
-                    qlog.debug(f'No page was found from {self.client.host} for {title=} - caching null page')
-                    self._cache.pages[title] = None
-
+            self._get_needed_pages()
         return self._pages
+
+    def _get_needed_pages(self):
+        unquoted_need = set(map(unquote, self.needed))
+        resp = self.client.query(titles=unquoted_need, rvprop='content', prop=['revisions', 'categories'])
+        self._process_pages_resp(resp)
+        if self.missing and self._search:
+            missing = sorted(self.missing)
+            log.debug(f'Re-attempting retrieval of pages via searches: {missing}')
+            for title in missing:
+                kwargs = {'generator': 'search', 'gsrsearch': title, 'gsrwhat': self._gsrwhat}
+                resp = self.client.query(rvprop='content', prop=['revisions', 'categories'], **kwargs)
+                self._cache.search_titles[title] = list(resp)
+                self._process_pages_resp(resp, self._gsrwhat == 'text')
+
+        for title in sorted(self._no_data.union(self.missing)):
+            if title not in self._cache.pages:
+                qlog.debug(f'No page was found from {self.client.host} for {title=} - caching null page')
+                self._cache.pages[title] = None
 
     def get_page(self, title: str) -> PageEntry:
         results = self.get_pages()
@@ -561,32 +566,35 @@ class PageQuery:
 
     @cached_property
     def needed(self) -> set[str]:
+        if self.no_cache:
+            return {title for title, _ in self._normalized_titles()}
+
         need = set()
+        for title, norm_title in self._normalized_titles():
+            for _title in self._cache.search_titles.get(norm_title, (norm_title,)):
+                key = title if _title == norm_title else _title
+                try:
+                    page = self._cache.pages[_title]
+                except KeyError:
+                    need.add(key)
+                    qlog.debug(f'No content was found in {self.client.host} page cache for title={norm_title!r}')
+                else:
+                    if page:
+                        self._pages[key] = page
+                        qlog.debug(f'Found content in {self.client.host} page cache for title={norm_title!r}')
+                    else:
+                        qlog.debug(f'Found empty content in {self.client.host} page cache for title={norm_title!r}')
+        return need
+
+    def _normalized_titles(self) -> Iterator[tuple[str, str]]:
         for title in self.titles:
             try:
                 norm_title = self._cache.normalized_titles[normalize_title(title)]
             except KeyError:
-                norm_title = title
+                yield title, title
             else:
-                qlog.debug(f'Normalized title {title!r} to {norm_title!r}')
-
-            if self.no_cache:
-                need.add(title)
-            else:
-                for _title in self._cache.search_titles.get(norm_title, (norm_title,)):
-                    key = title if _title == norm_title else _title
-                    try:
-                        page = self._cache.pages[_title]
-                    except KeyError:
-                        need.add(key)
-                        qlog.debug(f'No content was found in {self.client.host} page cache for title={norm_title!r}')
-                    else:
-                        if page:
-                            self._pages[key] = page
-                            qlog.debug(f'Found content in {self.client.host} page cache for title={norm_title!r}')
-                        else:
-                            qlog.debug(f'Found empty content in {self.client.host} page cache for title={norm_title!r}')
-        return need
+                qlog.debug(f'Normalized {title=} to {norm_title!r}')
+                yield title, norm_title
 
     @cached_property
     def missing(self) -> set[str]:
@@ -624,49 +632,36 @@ class PageQuery:
                 else:
                     log.debug(
                         f'Received page {title=} {redirected_from=} from {self.client.host} that does not match any'
-                        f' requested titles'
+                        ' of the requested titles'
                     )
+            elif title in self.needed:
+                self._store_page(title, entry)
+            elif original := self._original_title(norm_title, title):
+                self._store_page(original, entry)
+            elif allow_unexpected:
+                self._store_page(title, entry)
             else:
-                if title in self.needed:
-                    self._store_page(title, entry)
-                elif original := self._original_title(norm_title, title):
-                    self._store_page(original, entry)
-                elif allow_unexpected:
-                    self._store_page(title, entry)
-                else:
-                    log.debug(
-                        f'Received page {title=} from {self.client.host} that does not match any requested titles'
-                    )
+                log.debug(
+                    f'Received page {title=} from {self.client.host} that does not match any of the requested titles'
+                )
 
     def _original_title(self, norm_title: str, title: str = None) -> Optional[str]:
         try:
-            orig = self.norm_to_orig[norm_title]
-        except KeyError:
-            pass
-        else:
-            if title:
-                self._store_normalized(norm_title, title, 'quiet redirect')
-            return orig
+            normalized, original = self._get_normalized_and_original_title(norm_title)
+        except TypeError:  # None was returned
+            return None
+        if title:
+            self._store_normalized(normalized, title, 'quiet redirect')
+        return original
 
+    def _get_normalized_and_original_title(self, norm_title: str):
+        if orig := self.norm_to_orig.get(norm_title):
+            return norm_title, orig
         lc_norm = norm_title.lower()
-        try:
-            orig = self.norm_to_orig[lc_norm]
-        except KeyError:
-            pass
-        else:
-            if title:
-                self._store_normalized(lc_norm, title, 'quiet redirect')
-            return orig
-
-        try:
-            norm_title = self.lc_norm_to_norm[lc_norm]
-            orig = self.norm_to_orig[norm_title]
-        except KeyError:
-            pass
-        else:
-            if title:
-                self._store_normalized(norm_title, title, 'quiet redirect')
-            return orig
+        if orig := self.norm_to_orig.get(lc_norm):
+            return lc_norm, orig
+        if (norm_title := self.lc_norm_to_norm.get(lc_norm)) and (orig := self.norm_to_orig.get(norm_title)):
+            return norm_title, orig
         return None
 
     def _store_normalized(self, orig: str, normalized: str, reason: str):

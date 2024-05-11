@@ -129,8 +129,7 @@ class Node(ClearableCachedPropertyMixin):
         return None
 
     def copy(self) -> Self:
-        cls = self.__class__
-        clone = cls.__new__(cls)
+        clone = self.__class__.__new__(self.__class__)
         clone.raw = self.raw
         clone.preserve_comments = self.preserve_comments
         clone.root = self.root
@@ -516,7 +515,7 @@ class Link(BasicNode):
         return self._str == other._str and self.source_site == other.source_site
 
     def __lt__(self, other: Link) -> bool:
-        return self.__cmp_tuple < other.__cmp_tuple
+        return self.__cmp_tuple < other.__cmp_tuple  # noqa
 
     def __str__(self) -> str:
         return self.show or self.raw.string
@@ -551,8 +550,8 @@ class Link(BasicNode):
         return cls(cls._format(title, text), root)
 
     def strings(self, strip: bool = True) -> Iterator[str]:
-        if show := self.show:
-            yield show.strip() if strip else show
+        if self.show:
+            yield self.show.strip() if strip else self.show
 
     @cached_property
     def show(self) -> Optional[str]:
@@ -584,15 +583,14 @@ class Link(BasicNode):
 
     @cached_property
     def iw_key_title(self) -> tuple[str, str]:
-        if (root := self.root) and ':' in (title := self.title):
-            if m := self._iw_community_match(title):
+        if self.root and ':' in self.title:
+            if m := self._iw_community_match(self.title):
                 return tuple(m.groups())  # noqa
-            elif iw_map := root._interwiki_map:
-                prefix, iw_title = title.split(':', maxsplit=1)
+            elif iw_map := self.root._interwiki_map:
+                prefix, iw_title = self.title.split(':', maxsplit=1)
                 if prefix in iw_map:
                     return prefix, iw_title
-                lc_prefix = prefix.lower()
-                if lc_prefix in iw_map:
+                elif (lc_prefix := prefix.lower()) in iw_map:
                     return lc_prefix, iw_title
         raise ValueError(f'{self} is not an interwiki link')
 
@@ -674,8 +672,8 @@ class ListEntry(CompoundNode[C]):
         return bool(self.value) or bool(self.children)
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
-        if value := self.value:
-            yield from _find_all(value, node_cls, recurse, **kwargs)
+        if self.value:
+            yield from _find_all(self.value, node_cls, recurse, **kwargs)
         for value in self:
             yield from _find_all(value, node_cls, recurse, recurse, **kwargs)
 
@@ -693,10 +691,7 @@ class ListEntry(CompoundNode[C]):
 
     @cached_property
     def children(self) -> list[ListEntry[C]]:
-        sub_list = self.sub_list
-        if not sub_list:
-            return []
-        return sub_list.children
+        return self.sub_list.children if self.sub_list else []
 
     def extend(self, list_node: List[ListEntry[C]]):
         if self._children is None:
@@ -739,19 +734,20 @@ class ListEntry(CompoundNode[C]):
             base = '\n'.join(inside + line for line in self.value.pformat().splitlines())
         else:
             base = f'{inside}None'
-        children = None
+
         if self.children:
             nested = indent + (' ' * 8)
             children = ',\n'.join('\n'.join(nested + line for line in c.pformat().splitlines()) for c in self.children)
+        else:
+            children = None
 
         if not children and base.count('\n') == 0:
             return f'{indent}<{self.__class__.__name__}({base.strip()})>'
+        elif children:
+            content = f'{base},\n{inside}[\n{children}\n{inside}]'
         else:
-            if children:
-                content = f'{base},\n{inside}[\n{children}\n{inside}]'
-            else:
-                content = base
-            return f'{indent}<{self.__class__.__name__}(\n{content}\n{indent})>'
+            content = base
+        return f'{indent}<{self.__class__.__name__}(\n{content}\n{indent})>'
 
     def __rich_repr__(self):
         yield self.value
@@ -819,7 +815,7 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
         last_val = None
         for line in map(str.strip, self.raw.fullitems):
             ctrl_chars, content = ctrl_pat_match(line).groups()
-            # log.debug(f'Processing ctrl={ctrl_chars!r} content={content!r} last_key={last_key!r} last_val={last_val!r}')
+            # log.debug(f'Processing ctrl={ctrl_chars!r} {content=} {last_key=} {last_val=}')
             c = ctrl_chars[-1]
             if c == ';':  # key
                 if last_key:
@@ -845,19 +841,18 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
     def _as_inline_dict(self, node_fn: Callable, _add_kv: Callable, sep: str):
         ctrl_pat_match = re.compile(r'^([*#:;]+)\s*(.*)$', re.DOTALL).match
         style_pat_match = re.compile(r'^(\'{2,5}[^' + sep + r']+)' + sep + r'\s*(\'{2,5})(.*)', re.DOTALL).match
-        reformatter = '{{}}{{}}{} {{}}'.format(sep)
+        reformat = f'{{}}{{}}{sep} {{}}'.format
 
         for line in map(str.strip, self.raw.fullitems):
             ctrl_chars, content = map(str.strip, ctrl_pat_match(line).groups())
             if m := style_pat_match(content):
-                content = reformatter.format(*m.groups())
+                content = reformat(*m.groups())
 
             raw_key, raw_val = content.split(sep, maxsplit=1)
             if '\n' in raw_val:
                 raw_val = '\n'.join(val_line[1:] for val_line in filter(None, raw_val.splitlines()))
 
-            key, val = map(node_fn, (raw_key, raw_val))
-            _add_kv(key, val)
+            _add_kv(node_fn(raw_key), node_fn(raw_val))
 
     def copy(self) -> List[ListEntry[C]]:
         clone = super().copy()  # CompoundNode.copy handles copying children
@@ -877,9 +872,7 @@ class TableSeparator:
         return f'<{self.__class__.__name__}({self.value!r})>'
 
     def __eq__(self, other) -> bool:
-        if not isinstance(other, self.__class__):
-            return False
-        return self.value == other.value
+        return isinstance(other, self.__class__) and self.value == other.value
 
     def __hash__(self) -> int:
         return hash(self.value) ^ hash(self.__class__)
@@ -920,10 +913,10 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
 
     @cached_property
     def _raw_headers(self):
-        if not (header_row_spans := self._header_row_spans):
+        if not self._header_row_spans:
             return []
 
-        rows = self.raw.cells()[:max(header_row_spans)]
+        rows = self.raw.cells()[:max(self._header_row_spans)]
         sub_ws = self._header_ws_pat.sub
         root, comments = self.root, self.preserve_comments
         return [
@@ -1245,7 +1238,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
     def __contains__(self, title_or_index: Union[str, int]) -> bool:
         if title_or_index in self.children:
             return True
-        if isinstance(title_or_index, int):
+        elif isinstance(title_or_index, int):
             return 0 <= title_or_index < len(self._subsections)
         return False
 
@@ -1257,8 +1250,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
 
     def _formatted_title(self, raw: bool = False) -> str:
         bars = '=' * self.level
-        title = self.raw.title if raw else self.title
-        return f'{bars}{title}{bars}'
+        return f'{bars}{self.raw.title if raw else self.title}{bars}'
 
     def _add_sub_section(self, title: str, section: Section):
         section.parent = self
@@ -1325,15 +1317,15 @@ class Section(ContainerNode['Section'], method='get_sections'):
         return default
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
-        if content := self.content:
-            yield from _find_all(content, node_cls, recurse, **kwargs)
+        if self.content:
+            yield from _find_all(self.content, node_cls, recurse, **kwargs)
         if recurse:
             for child in self:
                 yield from _find_all(child, node_cls, recurse, **kwargs)
 
     def strings(self, strip: bool = True) -> Iterator[str]:
-        if title := self.title:
-            yield title.strip() if strip else title
+        if self.title:
+            yield self.title.strip() if strip else self.title
 
         yield from _strings(self.content, strip)
         for subsection in self:
@@ -1492,8 +1484,7 @@ def _strings(value, strip: bool = True) -> Iterator[str]:
             for val in value:
                 yield from _strings(val)
         except TypeError:
-            value = str(value)
-            yield value.strip() if strip else value
+            yield str(value).strip() if strip else str(value)
 
 
 def _maybe_copy(obj: T) -> T:
@@ -1508,4 +1499,3 @@ def _maybe_copy(obj: T) -> T:
 
 # Down here due to circular dependency
 from .parsing import as_node  # noqa
-from .transformers import dl_keys_to_subsections, transform_section  # noqa

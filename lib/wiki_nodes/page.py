@@ -72,7 +72,7 @@ class WikiPage(Root):
         return hash(self.__class__) ^ hash(self.site) ^ hash(self.title) ^ hash(self.raw.string)
 
     def __lt__(self, other: WikiPage) -> bool:
-        return self._sort_key < other._sort_key
+        return self._sort_key < other._sort_key  # noqa
 
     # endregion
 

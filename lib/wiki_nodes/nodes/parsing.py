@@ -66,18 +66,18 @@ def as_node(
         return None
 
     wiki_text = WikiText(text) if isinstance(text, str) else text
-    nodes = [node for node in _iter_nodes(wiki_text, root, preserve_comments, strict_tags)]
-    if not nodes:
-        # log.debug(f'[{c}] No spans/objects found')
-        return None
-    elif len(nodes) == 1:
-        # log.debug(f'[{c}] Returning first node={nodes[0]}')
-        return nodes[0]
-    else:
+    if nodes := tuple(_iter_nodes(wiki_text, root, preserve_comments, strict_tags)):
+        if len(nodes) == 1:
+            # log.debug(f'[{c}] Returning first node={nodes[0]}')
+            return nodes[0]
+
         # log.debug(f'[{c}] Returning CompoundNode with {len(nodes)} children={nodes}')
         node = CompoundNode(wiki_text, root, preserve_comments)
         node.children.extend(nodes)
         return node
+    else:
+        # log.debug(f'[{c}] No spans/objects found')
+        return None
 
 
 def _iter_nodes(wiki_text: WikiText, root: Optional[Root], preserve_comments: bool = False, strict_tags: bool = False):
