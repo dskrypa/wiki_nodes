@@ -287,7 +287,7 @@ class PageData:
             iw_key, rev_key = '*', '*'
 
         title = data['title']
-        qlog.debug(f'Processing page with title={title!r}, keys: {", ".join(sorted(data))}')
+        qlog.debug(f'Processing page with {title=}, keys: {", ".join(sorted(data))}')
         # if 'revisions' not in page:
         #     qlog.debug(f' > Content: {dumps(page, sort_keys=True, indent=4)}')
         if redirected_from := redirects.get(title):
@@ -351,11 +351,10 @@ class PageData:
                 self.data[key] = value
             elif key in self._skip_merge:
                 pass
+            elif value is not None and full_val is None:
+                self.data[key] = value
+            elif value == full_val:
+                pass
             else:
-                if value is not None and full_val is None:
-                    self.data[key] = value
-                elif value == full_val:
-                    pass
-                else:
-                    val_type = full_val.__class__.__name__
-                    log.error(f'Unexpected merge value for {self} {key=} {val_type=} {full_val=} new {value=}')
+                val_type = full_val.__class__.__name__
+                log.error(f'Unexpected merge value for {self} {key=} {val_type=} {full_val=} new {value=}')

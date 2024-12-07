@@ -124,8 +124,7 @@ class MediaWikiClient(RequestsClient):
 
     @cached_property
     def interwiki_map(self) -> dict[str, str]:
-        rows = self.siteinfo['interwikimap']
-        return {row['prefix']: row['url'] for row in rows}
+        return {row['prefix']: row['url'] for row in self.siteinfo['interwikimap']}
 
     @cached_property
     def lc_interwiki_map(self) -> dict[str, str]:
@@ -133,9 +132,7 @@ class MediaWikiClient(RequestsClient):
 
     @cached_property
     def _merged_interwiki_map(self):
-        iw_map = self.interwiki_map.copy()
-        iw_map.update(self.lc_interwiki_map)
-        return iw_map
+        return self.interwiki_map | self.lc_interwiki_map
 
     def interwiki_client(self, iw_map_key: str) -> Optional[MediaWikiClient]:
         if iw_map_key.startswith('w:c:'):

@@ -761,7 +761,17 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
         super().__init__(raw, root, preserve_comments)
         self._as_mapping = None
         self.start_char = self.raw.string[0]
-        self.type = ListType(self.start_char)
+        # self.type = ListType(self.start_char)
+
+    @cached_property
+    def type(self) -> ListType:
+        # TODO: The `:` before `{{blockquote|...` here causes this to break:
+        """
+        Many musicians have cited ''Rocks'' as a favorite:
+        * [[Slash (musician)|Slash]] says ''Rocks'' was the album that inspired him to learn guitar,<ref>{{cite magazine|archive-date=May 21, 2006}}</ref> and that the album changed his life:
+        :{{blockquote|I was in [[seventh grade]] and just going through the whole ... it was worth it."<ref>{{cite journal|title= The record that changed my life |journal= [[Q (magazine)|Q]] |date= June 1995}}</ref>}}
+        """
+        return ListType(self.start_char)
 
     @cached_property
     def children(self) -> list[ListEntry[C]]:

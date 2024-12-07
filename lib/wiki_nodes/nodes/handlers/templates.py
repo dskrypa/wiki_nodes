@@ -27,13 +27,17 @@ class TemplateHandler(NodeHandler[Template], root=True):
     basic: bool = None
 
     def __init_subclass__(cls, basic: bool = None, **kwargs):
+        if for_name := kwargs.get('for_name'):
+            kwargs['for_name'] = ''.join(for_name.split())
+        if for_names := kwargs.get('for_names'):
+            kwargs['for_names'] = tuple(''.join(for_name.split()) for for_name in for_names)
         super().__init_subclass__(**kwargs)
         if basic is not None:
             cls.basic = basic
 
     @classmethod
     def get_name(cls, node: Template) -> str:
-        return node.lc_name
+        return ''.join(node.lc_name.split())
 
     @property
     def is_basic(self) -> bool:
