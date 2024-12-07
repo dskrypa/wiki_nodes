@@ -312,10 +312,16 @@ class WikipediaStartDateHandler(WikipediaHandler, for_names=('start date', 'end 
             tz = datetime.strptime(pos_args[6], '%z').tzinfo
         except (IndexError, ValueError):
             tz = None
-        parts = [int(part) if part else 0 for part in pos_args[:6]]
+
+        try:
+            parts = [int(part) if part else 0 for part in pos_args[:6]]
+        except ValueError:
+            return None
+
         to_add = 3 - len(parts)
         if to_add > 0:
             parts.extend(1 for _ in range(to_add))
+
         return datetime(*parts, tzinfo=tz)
 
 
