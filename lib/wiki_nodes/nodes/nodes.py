@@ -14,7 +14,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Generic
+from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, Mapping, Optional, Type, TypeVar, Union
 
 try:
     from typing import Self
@@ -22,12 +22,17 @@ except ImportError:
     Self = TypeVar('Self')  # noqa
 
 from wikitextparser import (
-    WikiText, Section as _Section, Template as _Template, Table as _Table, Tag as _Tag, WikiLink as _Link,
-    WikiList as _List
+    Section as _Section,
+    Table as _Table,
+    Tag as _Tag,
+    Template as _Template,
+    WikiLink as _Link,
+    WikiList as _List,
+    WikiText,
 )
 
 from ..exceptions import NoLinkSite, NoLinkTarget
-from ..utils import strip_style, ClearableCachedPropertyMixin, rich_repr
+from ..utils import ClearableCachedPropertyMixin, rich_repr, strip_style
 from .enums import ListType
 
 if TYPE_CHECKING:
@@ -35,8 +40,23 @@ if TYPE_CHECKING:
     from .handlers import TagHandler, TemplateHandler
 
 __all__ = [
-    'Node', 'BasicNode', 'CompoundNode', 'ContainerNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List',
-    'Table', 'Template', 'Root', 'Section', 'TableSeparator', 'N', 'AnyNode'
+    'Node',
+    'BasicNode',
+    'CompoundNode',
+    'ContainerNode',
+    'MappingNode',
+    'Tag',
+    'String',
+    'Link',
+    'ListEntry',
+    'List',
+    'Table',
+    'Template',
+    'Root',
+    'Section',
+    'TableSeparator',
+    'N',
+    'AnyNode',
 ]
 log = logging.getLogger(__name__)
 
@@ -47,8 +67,19 @@ KT = TypeVar('KT')
 OptStr = Optional[str]
 Raw = Union[str, WikiText]
 AnyNode = Union[
-    'Node', 'BasicNode', 'CompoundNode', 'MappingNode', 'Tag', 'String', 'Link', 'ListEntry', 'List', 'Table',
-    'Template', 'Root', 'Section'
+    'Node',
+    'BasicNode',
+    'CompoundNode',
+    'MappingNode',
+    'Tag',
+    'String',
+    'Link',
+    'ListEntry',
+    'List',
+    'Table',
+    'Template',
+    'Root',
+    'Section',
 ]
 
 _NotSet = object()
@@ -486,7 +517,7 @@ class Link(BasicNode):
     text: str
 
     def __init__(self, raw: Union[Raw, _Link], root: Root = None):
-        super().__init__(raw, root)                    # note: target = title + fragment; fragment not desired right now
+        super().__init__(raw, root)  # note: target = title + fragment; fragment not desired right now
         self.title = ' '.join(self.raw.title.split())  # collapse extra spaces
         self.text = self.raw.text
 
@@ -524,9 +555,9 @@ class Link(BasicNode):
     def __repr__(self) -> str:
         if self.root and (site := self.root.site):
             parts = site.split('.')
-            if parts[0] in {'www', 'wiki', 'en'}:                       # omit common prefixes
+            if parts[0] in {'www', 'wiki', 'en'}:  # omit common prefixes
                 parts = parts[1:]
-            if len(parts) > 1 and parts[-1] in {'org', 'com', 'net'}:   # omit common suffixes
+            if len(parts) > 1 and parts[-1] in {'org', 'com', 'net'}:  # omit common suffixes
                 parts = parts[:-1]
             site = '.'.join(parts)
             return f'<{self.__class__.__name__}:{self._str!r}@{site}>'
@@ -729,7 +760,7 @@ class ListEntry(CompoundNode[C]):
         return clone
 
     def pformat(self, indentation: int = 0) -> str:
-        indent = (' ' * indentation)
+        indent = ' ' * indentation
         inside = indent + (' ' * 4)
         if self.value is not None:
             base = '\n'.join(inside + line for line in self.value.pformat().splitlines())
@@ -927,12 +958,11 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
         if not self._header_row_spans:
             return []
 
-        rows = self.raw.cells()[:max(self._header_row_spans)]
+        rows = self.raw.cells()[: max(self._header_row_spans)]
         sub_ws = self._header_ws_pat.sub
         root, comments = self.root, self.preserve_comments
         return [
-            [as_node(sub_ws(' ', cell.value).strip(), root, comments) if cell else cell for cell in row]
-            for row in rows
+            [as_node(sub_ws(' ', cell.value).strip(), root, comments) if cell else cell for cell in row] for row in rows
         ]
 
     @cached_property
@@ -962,7 +992,7 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
     def headers(self) -> list[str]:
         headers = []
         for row_span, *header_vals in zip(self._header_row_spans, *self._str_headers):
-            header_vals = header_vals[:-(row_span - 1)] if row_span > 1 else header_vals
+            header_vals = header_vals[: -(row_span - 1)] if row_span > 1 else header_vals
             headers.append(':'.join(map(strip_style, filter(None, header_vals))))
         return headers
 
@@ -1358,7 +1388,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
         content = self.raw.contents.strip()
         if self.children:
             content = content.partition(next(iter(self))._formatted_title(True))[0].strip()
-        return as_node(content, self.root, self.preserve_comments)    # chop off the header
+        return as_node(content, self.root, self.preserve_comments)  # chop off the header
 
     def _process_compound_root_content(self, node: CompoundNode[N]) -> CompoundNode[N]:
         # Split infobox / templates from first paragraph

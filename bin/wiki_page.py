@@ -3,9 +3,9 @@
 from functools import cached_property
 from pathlib import Path
 
-from cli_command_parser import Command, Option, Flag, Positional, TriFlag, SubCommand, ParamGroup, main, inputs
+from cli_command_parser import Command, Flag, Option, ParamGroup, Positional, SubCommand, TriFlag, main
+from cli_command_parser.inputs import ChoiceMap, Path as IPath
 
-from wiki_nodes.__version__ import __author_email__, __version__  # noqa
 from wiki_nodes.nodes.nodes import Node
 
 
@@ -43,8 +43,12 @@ class View(WikiPageViewer, help='View a wiki page'):
     with ParamGroup('Selection Options'):
         section = Option('-s', help='The section to view')
         index = Option('-i', type=int, nargs=(1, 2), help='Index or slice within the selected node/section to view')
-        type = Option('-t', type=inputs.ChoiceMap(Node.TYPES, case_sensitive=False), help='Filter output to the specified node type')
-        recursive = TriFlag('-r', alt_short='-R', alt_prefix='not', help='Whether find_all nodes should be called recursively')
+        type = Option(
+            '-t', type=ChoiceMap(Node.TYPES, case_sensitive=False), help='Filter output to the specified node type'
+        )
+        recursive = TriFlag(
+            '-r', alt_short='-R', alt_prefix='not', help='Whether find_all nodes should be called recursively'
+        )
 
     def main(self):
         for node in self.get_nodes():
@@ -93,7 +97,7 @@ class Meta(WikiPageViewer, help='View metadata about a given wiki page'):
 
 class Save(WikiPageViewer, help='Save a given wiki page'):
     url = Positional(help='A Wiki page URL')
-    output: Path = Option('-o', type=inputs.Path(type='file|dir'), required=True, help='Output path')
+    output: Path = Option('-o', type=IPath(type='file|dir'), required=True, help='Output path')
 
     def main(self):
         text = self.page.raw.string

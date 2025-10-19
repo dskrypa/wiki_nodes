@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
 import sys
-from unittest import main, TestCase
+from unittest import TestCase, main
 
 from wiki_nodes.nodes import List, ListEntry
-from wiki_nodes.testing import WikiNodesTest, sealed_mock, RedirectStreams, mocked_client
+from wiki_nodes.testing import RedirectStreams, WikiNodesTest, mocked_client, sealed_mock
 
 
 class TestHelperTest(TestCase):
@@ -39,7 +39,7 @@ class TestHelperTest(TestCase):
         try:
             WikiNodesTest().assert_strings_equal('[[test]]', '[[test]]\n')
         except AssertionError as e:
-            self.assertIn('- [[test]]\n+ [[test]]\n\n?         \n+\n', str(e))
+            self.assertIn(r"'[[test]]' != '[[test]]\n'", str(e))
         else:
             self.fail('No AssertionError was raised')
 

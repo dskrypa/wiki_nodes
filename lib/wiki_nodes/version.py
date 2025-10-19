@@ -103,6 +103,7 @@ class StrictVersion(Version):
         elif not isinstance(other, StrictVersion):
             return NotImplemented
 
+        # fmt: off
         if self.version != other.version:               # numeric versions don't match - pre-release doesn't matter
             return -1 if self.version < other.version else 1
 
@@ -119,6 +120,7 @@ class StrictVersion(Version):
                 return -1
             else:
                 return 1
+        # fmt: on
 
 
 class LooseVersion(Version):

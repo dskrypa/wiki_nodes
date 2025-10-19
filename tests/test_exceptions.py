@@ -4,15 +4,15 @@ from unittest import main
 from unittest.mock import patch
 
 from wiki_nodes import Link
-from wiki_nodes.http.client import PageQuery, MediaWikiClient
-from wiki_nodes.exceptions import PageMissingError, NoLinkSite
+from wiki_nodes.exceptions import NoLinkSite, PageMissingError
+from wiki_nodes.http.client import MediaWikiClient, PageQuery
 from wiki_nodes.testing import WikiNodesTest
 
 
 class ExceptionTest(WikiNodesTest):
     def test_bad_link_site(self):
         with self.assertRaisesRegex(NoLinkSite, 'NoLinkSite: No source site found for link='):
-            _ = Link('[[test|Test]]', ).client_and_title
+            _ = Link('[[test|Test]]').client_and_title
 
     def test_page_missing_error(self):
         with patch.object(PageQuery, 'get_pages', return_value={}):

@@ -13,20 +13,19 @@ from functools import cached_property
 from io import BytesIO
 from json import JSONDecodeError
 from shutil import copyfileobj
-from typing import Iterable, Optional, Union, Any, Mapping, Iterator
-from urllib.parse import urlparse, unquote, parse_qs
-
-from requests import RequestException, Response
+from typing import Any, Iterable, Iterator, Mapping, Optional, Union
+from urllib.parse import parse_qs, unquote, urlparse
 
 from db_cache import TTLDBCache
+from requests import RequestException, Response
 from requests_client import RequestsClient
 
-from ..exceptions import PageMissingError, InvalidWikiError
+from ..exceptions import InvalidWikiError, PageMissingError
 from ..version import LooseVersion
 from .cache import WikiCache
 from .parse import Parse
 from .query import Query
-from .utils import URL_MATCH, TitleDataMap, PageEntry, TitleEntryMap, Titles, normalize_title, _normalize_file_name
+from .utils import URL_MATCH, PageEntry, TitleDataMap, TitleEntryMap, Titles, _normalize_file_name, normalize_title
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
@@ -164,7 +163,7 @@ class MediaWikiClient(RequestsClient):
 
     def article_url_to_title(self, url: str) -> str:
         if url.startswith(self.article_url_prefix):
-            return url[len(self.article_url_prefix):]
+            return url[len(self.article_url_prefix) :]
 
         parsed = urlparse(url)
         uri_path = unquote(parsed.path)
@@ -291,11 +290,16 @@ class MediaWikiClient(RequestsClient):
         raw_pages = self.query_pages(titles, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         return {
             result_title: WikiPage(
-                data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
-                self._merged_interwiki_map, self
+                data['title'],
+                self.host,
+                data['wikitext'],
+                data['categories'],
+                preserve_comments,
+                self._merged_interwiki_map,
+                self,
             )
             for result_title, data in raw_pages.items()
-        }   # The result_title may have redirected to the actual title
+        }  # The result_title may have redirected to the actual title
 
     def get_page(
         self,
@@ -307,8 +311,13 @@ class MediaWikiClient(RequestsClient):
     ) -> WikiPage:
         data = self.query_page(title, search=search, no_cache=no_cache, gsrwhat=gsrwhat)
         return WikiPage(
-            data['title'], self.host, data['wikitext'], data['categories'], preserve_comments,
-            self._merged_interwiki_map, self
+            data['title'],
+            self.host,
+            data['wikitext'],
+            data['categories'],
+            preserve_comments,
+            self._merged_interwiki_map,
+            self,
         )
 
     @classmethod
@@ -423,10 +432,7 @@ class MediaWikiClient(RequestsClient):
         needed, img_titles = self._cache.get_misc('images', titles)
         if needed:
             resp = Query.image_titles(self, needed).get_results()
-            results = {
-                title: [image['title'] for image in data.get('images', [])]
-                for title, data in resp.items()
-            }
+            results = {title: [image['title'] for image in data.get('images', [])] for title, data in resp.items()}
             self._cache.store_misc('images', results)
             img_titles.update(results)
         return img_titles
@@ -614,7 +620,9 @@ class PageQuery:
 
             rev = data.get('revisions')
             self._cache.pages[title] = entry = {
-                'title': title, 'categories': data.get('categories') or [], 'wikitext': rev[0] if rev else None
+                'title': title,
+                'categories': data.get('categories') or [],
+                'wikitext': rev[0] if rev else None,
             }
             yield title, normalize_title(title), data, entry
 

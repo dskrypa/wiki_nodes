@@ -15,7 +15,12 @@ from rich.pretty import pretty_repr
 from rich.text import Text
 
 __all__ = [
-    'strip_style', 'partitioned', 'ClearableCachedPropertyMixin', 'IntervalCoverageMap', 'short_repr', 'rich_repr'
+    'strip_style',
+    'partitioned',
+    'ClearableCachedPropertyMixin',
+    'IntervalCoverageMap',
+    'short_repr',
+    'rich_repr',
 ]
 
 T = TypeVar('T')
@@ -58,7 +63,9 @@ def strip_style(text: str, strip: bool = True) -> str:
             patterns_a = strip_style._patterns_a
         except AttributeError:
             patterns_a = strip_style._patterns_a = [
-                re.compile(r"(''''')(.+?)(\1)"), re.compile(r"(''')(.+?)(\1)"), re.compile(r"('')(.+?)(\1)")
+                re.compile(r"(''''')(.+?)(\1)"),
+                re.compile(r"(''')(.+?)(\1)"),
+                re.compile(r"('')(.+?)(\1)"),
             ]  # Replace longest matches first
 
         for pat in patterns_a:
@@ -81,7 +88,7 @@ def partitioned(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]:
     :return: Generator that yields sub-sequences of the given sequence with len being at most n
     """
     for i in range(0, len(seq), n):
-        yield seq[i: i + n]
+        yield seq[i : i + n]
 
 
 class ClearableCachedPropertyMixin:

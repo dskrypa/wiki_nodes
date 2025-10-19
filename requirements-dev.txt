@@ -1,10 +1,1 @@
--e .
-pre-commit
-
-# QoL
-ipython
-rich
-
-# Testing
-testtools
-coverage
+-e .[dev]

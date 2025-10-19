@@ -3,8 +3,14 @@
 """
 
 __all__ = [
-    'WikiError', 'WikiResponseError', 'PageMissingError', 'InvalidWikiError',
-    'BadLinkError', 'NoLinkTarget', 'NoLinkSite', 'SiteDoesNotExist',
+    'WikiError',
+    'WikiResponseError',
+    'PageMissingError',
+    'InvalidWikiError',
+    'BadLinkError',
+    'NoLinkTarget',
+    'NoLinkSite',
+    'SiteDoesNotExist',
 ]
 
 
@@ -39,6 +45,7 @@ class InvalidWikiError(WikiError):
 
 class BadLinkError(WikiError):
     """A link was missing a key field to be useful"""
+
     _problem = 'One or more key fields is missing'
 
     def __init__(self, link):

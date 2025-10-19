@@ -25,6 +25,7 @@ class Parse:
     :param client: The MediaWikiClient through which the query will be submitted
     :param params: Parse API parameters
     """
+
     __slots__ = ('client', 'params')
 
     def __init__(self, client: MediaWikiClient, *, prop: StrOrStrs = None, **params):

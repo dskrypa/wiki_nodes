@@ -13,11 +13,12 @@ from typing import TYPE_CHECKING, Any, Collection, Iterator
 from ..exceptions import WikiResponseError
 from ..utils import partitioned
 from ..version import LooseVersion
-from .utils import TitleDataMap, Titles, _normalize_params, _multi_value_param
+from .utils import TitleDataMap, Titles, _multi_value_param, _normalize_params
 
 if TYPE_CHECKING:
     from requests import Response
-    from ..typing import StrOrStrs, OptStr
+
+    from ..typing import OptStr, StrOrStrs
     from .client import MediaWikiClient
 
 __all__ = ['Query', 'QueryResponse', 'PageData']
@@ -40,6 +41,7 @@ class Query:
     :param client: The MediaWikiClient through which the query will be submitted
     :param params: Query API parameters
     """
+
     __slots__ = ('client', 'params', 'titles', '_responses')
     max_titles_per_query: int = 50
     client: MediaWikiClient
@@ -240,7 +242,7 @@ class QueryResponse:
             results = response['query']
         except KeyError:
             if len(response) != 1 or not response.get('batchcomplete'):
-                log.debug(f'Response from {self.resp.url} contained no \'query\' key; found: {", ".join(response)}')
+                log.debug(f"Response from {self.resp.url} contained no 'query' key; found: {', '.join(response)}")
             # log.debug(f'Complete response: {dumps(response, sort_keys=True, indent=4)}')
             return {}, None, None
 
