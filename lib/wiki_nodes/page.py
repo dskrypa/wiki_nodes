@@ -12,12 +12,12 @@ Notes:\n
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 from typing import TYPE_CHECKING, Optional, Union, Mapping, Collection
 
 from wikitextparser import WikiText
 
 from .nodes import Root, Template, String, CompoundNode, Tag, Link, ContainerNode
-from .utils import cached_property
 
 if TYPE_CHECKING:
     from .http import MediaWikiClient

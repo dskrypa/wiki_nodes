@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import re
 from collections import UserDict
-from contextlib import contextmanager
+from functools import cached_property
 from shutil import get_terminal_size
-from threading import RLock
-from typing import TypeVar, Sequence, Iterator, Callable, MutableMapping, Generic, overload
+from typing import Callable, Collection, Iterator, MutableMapping, Sequence, TypeVar
 
 from rich.highlighter import NullHighlighter
 from rich.pretty import pretty_repr
@@ -104,97 +103,18 @@ class ClearableCachedPropertyMixin:
                     pass
         return cached_properties
 
-    def clear_cached_properties(self):
-        for prop in self._cached_properties():
+    def clear_cached_properties(self, *names: str, skip: Collection[str] = None):
+        if not names:
+            names = self._cached_properties()
+
+        if skip:
+            names = (name for name in names if name not in skip)
+
+        for prop in names:
             try:
                 del self.__dict__[prop]
             except (KeyError, AttributeError):
                 pass
-
-
-class cached_property(Generic[T]):  # noqa
-    """
-    A cached property implementation that does not block access to all instances' attribute while one instance's
-    func is being called.
-    """
-
-    def __init__(self, func: Method):
-        self.func = func
-        self.name = None
-        self.__doc__ = func.__doc__
-        self.lock = RLock()
-        self.instance_locks = {}
-
-    def __set_name__(self, owner, name: str):
-        if self.name is None:
-            self.name = name
-        elif name != self.name:
-            raise TypeError(
-                f'Cannot assign the same cached_property to two different names ({self.name!r} and {name!r}).'
-            )
-
-    def _get_instance_lock(self, key) -> RLock:
-        with self.lock:
-            try:
-                return self.instance_locks[key]
-            except KeyError:
-                self.instance_locks[key] = lock = RLock()
-                return lock
-
-    @contextmanager
-    def instance_lock(self, instance: Obj, owner):
-        key = (owner, id(instance))
-        # Some object instances are not hashable, but its class + id should be unique long enough for this purpose
-        lock = self._get_instance_lock(key)
-        lock.acquire()
-        try:
-            yield
-        finally:
-            lock.release()
-            # During the yield, a value will have been stored, or an error will have been raised.
-            # If another instance was waiting for the instance lock, it will find the cached value and the key will
-            # have already been deleted by the time it gets here.  If another thread attempts to access the property
-            # after this point, it will already be cached, so the lock for that instance is no longer necessary.
-            with self.lock:
-                try:
-                    del self.instance_locks[key]
-                except KeyError:
-                    pass
-
-    @overload
-    def __get__(self, instance: None, owner) -> cached_property:
-        ...
-
-    @overload
-    def __get__(self, instance: Obj, owner) -> T:
-        ...
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-        elif self.name is None:
-            raise TypeError('Cannot use cached_property instance without calling __set_name__ on it.')
-
-        try:
-            cache = instance.__dict__
-        except AttributeError:  # not all objects have __dict__ (e.g. class defines slots)
-            cls = owner.__name__
-            raise TypeError(f"Unable to cache {cls}.{self.name} because {cls} has no '__dict__' attribute") from None
-
-        if (val := cache.get(self.name, _NOT_FOUND)) is _NOT_FOUND:
-            with self.instance_lock(instance, owner):
-                # check if another thread filled cache while we awaited lock
-                if (val := cache.get(self.name, _NOT_FOUND)) is _NOT_FOUND:
-                    val = self.func(instance)
-                    try:
-                        cache[self.name] = val
-                    except TypeError:
-                        cls = owner.__name__
-                        raise TypeError(
-                            f'Unable to cache {cls}.{self.name} because {cls}.__dict__ does not support item assignment'
-                        ) from None
-
-        return val
 
 
 class IntervalCoverageMap(UserDict):

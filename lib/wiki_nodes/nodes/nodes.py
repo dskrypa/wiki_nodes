@@ -13,6 +13,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
+from functools import cached_property
 from typing import TYPE_CHECKING, Iterable, Optional, Union, TypeVar, Type, Iterator, Callable, Mapping, Generic
 
 try:
@@ -26,7 +27,7 @@ from wikitextparser import (
 )
 
 from ..exceptions import NoLinkSite, NoLinkTarget
-from ..utils import strip_style, ClearableCachedPropertyMixin, cached_property, rich_repr
+from ..utils import strip_style, ClearableCachedPropertyMixin, rich_repr
 from .enums import ListType
 
 if TYPE_CHECKING:

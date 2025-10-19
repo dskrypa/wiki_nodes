@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import cached_property
 from io import BytesIO
 from json import JSONDecodeError
 from shutil import copyfileobj
@@ -21,7 +22,6 @@ from db_cache import TTLDBCache
 from requests_client import RequestsClient
 
 from ..exceptions import PageMissingError, InvalidWikiError
-from ..utils import cached_property
 from ..version import LooseVersion
 from .cache import WikiCache
 from .parse import Parse
