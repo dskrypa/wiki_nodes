@@ -5,10 +5,10 @@ Utilities for transforming Nodes into forms that are easier to process.
 from __future__ import annotations
 
 from copy import copy
-from typing import Optional, Iterator
+from typing import Iterator, Optional
 
 from .enums import ListType
-from .nodes import Section, List, CompoundNode, MappingNode, AnyNode
+from .nodes import AnyNode, CompoundNode, List, MappingNode, Section
 
 __all__ = [
     'dl_key_content_pairs',
@@ -54,7 +54,7 @@ def transform_section(section: Section, clone: bool = True) -> TransformedSectio
     Apply all section transforms to the provided :class:`.Section`.
 
     :param section: The section to process / transform.
-    :param clone: If True, then then a copy of the Section is created and any new subsections are created in that copy,
+    :param clone: If True, then a copy of the Section is created and any new subsections are created in that copy,
       otherwise, the given Section is modified in-place.
     :return: 2-Tuple of the transformed Section and the remaining base section content after the transformation.
     """
@@ -79,7 +79,7 @@ def dl_keys_to_subsections(section: Section, clone: bool = True, content: Compou
     are returned unchanged.  If it is CompoundNode, then the section is processed.
 
     :param section: The section to process / transform.
-    :param clone: If True, then then a copy of the Section is created and any new subsections are created in that copy,
+    :param clone: If True, then a copy of the Section is created and any new subsections are created in that copy,
       otherwise, the given Section is modified in-place.
     :param content: The section's content, if already pre-processed by another transformer.
     :return: 2-Tuple of the transformed Section and the remaining base section content after the transformation.
@@ -112,7 +112,7 @@ def convert_lists_to_maps(section: Section, clone: bool = True, content: Compoun
     Convert List objects to MappingNode objects, if possible
 
     :param section: The section to process / transform.
-    :param clone: If True, then then a copy of the Section is created and any new subsections are created in that copy,
+    :param clone: If True, then a copy of the Section is created and any new subsections are created in that copy,
       otherwise, the given Section is modified in-place.
     :param content: The section's content, if already pre-processed by another transformer.
     :return: 2-Tuple of the transformed Section and the remaining base section content after the transformation.
@@ -155,7 +155,7 @@ def convert_hanging_dl_lists(section: Section, clone: bool = True, content: Comp
     to be that dl's value (it will become a sublist of that dl).
 
     :param section: The section to process / transform.
-    :param clone: If True, then then a copy of the Section is created and any new subsections are created in that copy,
+    :param clone: If True, then a copy of the Section is created and any new subsections are created in that copy,
       otherwise, the given Section is modified in-place.
     :param content: The section's content, if already pre-processed by another transformer.
     :return: 2-Tuple of the transformed Section and the remaining base section content after the transformation.
@@ -204,7 +204,7 @@ def fix_nested_dl_ul_ol(section: Section, clone: bool = True, content: CompoundN
     properly nested.
 
     :param section: The section to process / transform.
-    :param clone: If True, then then a copy of the Section is created and any new subsections are created in that copy,
+    :param clone: If True, then a copy of the Section is created and any new subsections are created in that copy,
       otherwise, the given Section is modified in-place.
     :param content: The section's content, if already pre-processed by another transformer.
     :return: 2-Tuple of the transformed Section and the remaining base section content after the transformation.
@@ -261,7 +261,7 @@ def merge_map_chain(section: Section, clone: bool = True, content: CompoundNode 
     Merge / combine consecutive :class:`.MappingNode` objects into a single MappingNode.
 
     :param section: The section to process / transform.
-    :param clone: If True, then then a copy of the Section is created and any new subsections are created in that copy,
+    :param clone: If True, then a copy of the Section is created and any new subsections are created in that copy,
       otherwise, the given Section is modified in-place.
     :param content: The section's content, if already pre-processed by another transformer.
     :return: 2-Tuple of the transformed Section and the remaining base section content after the transformation.
@@ -297,10 +297,13 @@ def merge_map_chain(section: Section, clone: bool = True, content: CompoundNode 
 def _prep_section(section: Section, clone: bool, content: CompoundNode | None) -> tuple[Section, CompoundNode]:
     if not isinstance(section.content, CompoundNode):
         raise Skip(section.content if content is None else content)
+
     if clone:
         section = section.copy()
+
     if content is None:
         content = copy(section.content)
+
     return section, content
 
 

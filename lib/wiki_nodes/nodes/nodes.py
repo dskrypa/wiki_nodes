@@ -296,6 +296,14 @@ class CompoundNode(ContainerNode[C]):
 
     def pformat(self, indentation: int = 0) -> str:
         indent = ' ' * indentation
+        if not self.children:
+            return f'{indent}<{self.__class__.__name__}[]>'
+
+        if self.only_basic and len(self.children) <= 5:
+            rep = repr(self)
+            if (len(rep) + indentation) < 200:
+                return indent + rep
+
         inside = indent + (' ' * 4)
         child_lines = ('\n'.join(inside + line for line in c.pformat().splitlines()) for c in self.children)
         children = ',\n'.join(child_lines)
@@ -1144,7 +1152,7 @@ class Root(Node):
     def __init__(
         self,
         page_text: Raw,
-        site: str = None,
+        site: OptStr = None,
         preserve_comments: bool = False,
         interwiki_map: Mapping[str, str] = None,
     ):
