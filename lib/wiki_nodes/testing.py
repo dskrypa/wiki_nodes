@@ -14,9 +14,11 @@ from functools import lru_cache
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, ContextManager
+from typing import Any, ContextManager, Iterator
 from unittest import TestCase
-from unittest.mock import Mock, seal, patch
+from unittest.mock import Mock, _patch, patch, seal
+
+from requests import Session
 
 from .http.cache import WikiCache
 from .http.client import MediaWikiClient
@@ -38,23 +40,29 @@ TEST_DATA_DIR = Path(__file__).resolve().parents[2].joinpath('tests', 'data')
 
 
 class WikiNodesTestBase(TestCase):
+    __patches: list[_patch]
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Prevent any actual requests from leaking
-        cls._mwc_request_patch = patch.object(MediaWikiClient, 'request')
-        cls._mwc_request_patch.start()  # noqa
-        # Avoid relatively heavy introspection during frequent client init
-        cls._generate_user_agent_patch = patch('requests_client.client.generate_user_agent', return_value='FAKE_UA')
-        cls._generate_user_agent_patch.start()  # noqa
+        cls.__patches = [
+            # Prevent any actual requests from leaking
+            patch.object(MediaWikiClient, 'request'),
+            patch.object(Session, 'request', side_effect=RequestLeakError),
+            # Avoid relatively heavy introspection during frequent client init
+            patch('requests_client.client.generate_user_agent', return_value='FAKE_UA'),
+        ]
+        for p in cls.__patches:
+            p.start()
+
         # Prevent TTLDBCache init during client instance init
         MediaWikiClient._siteinfo_cache = Mock()
 
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        cls._mwc_request_patch.stop()  # noqa
-        cls._generate_user_agent_patch.stop()  # noqa
+        for p in cls.__patches:
+            p.stop()
 
     def tearDown(self):
         MediaWikiClient._instances.clear()
@@ -120,8 +128,8 @@ def _colored(text: str, color: int, end: str = '\n'):
 
 def format_diff(a: str, b: str, name_a: str = 'expected', name_b: str = '  actual', n: int = 3) -> str:
     sio = StringIO()
-    a = a.splitlines()
-    b = b.splitlines()
+    a: list[str] = a.splitlines()
+    b: list[str] = b.splitlines()
     for i, line in enumerate(unified_diff(a, b, name_a, name_b, n=n, lineterm='')):
         if line.startswith('+') and i > 1:
             sio.write(_colored(line, 2))
@@ -255,9 +263,16 @@ def _dump_site_info(client: MediaWikiClient) -> str:
 
 
 @contextmanager
-def wiki_cache(*args, **kwargs) -> ContextManager[WikiCache]:
+def wiki_cache(*args, **kwargs) -> Iterator[WikiCache]:
     with TemporaryDirectory() as td:
         temp_dir = Path(td)
         kwargs.setdefault('base_dir', temp_dir.joinpath('base'))
         kwargs.setdefault('img_dir', temp_dir.joinpath('img'))
         yield WikiCache(*args, **kwargs)
+
+
+class RequestLeakError(BaseException):
+    """
+    Raised when an unmocked request would have leaked during a unit test.  Extends BaseException to avoid being
+    handled by broad `except Exception:` handlers.
+    """
