@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import logging
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional, Union, Mapping, Collection
+from typing import TYPE_CHECKING, Collection, Mapping
 
 from wikitextparser import WikiText
 
-from .nodes import Root, Template, String, CompoundNode, Tag, Link, ContainerNode
+from .nodes import CompoundNode, ContainerNode, Link, Root, String, Tag, Template
 
 if TYPE_CHECKING:
     from .http import MediaWikiClient
@@ -44,12 +44,12 @@ class WikiPage(Root):
     def __init__(
         self,
         title: str,
-        site: Optional[str],
-        content: Union[str, WikiText],
+        site: str | None,
+        content: str | WikiText,
         categories: Collection[str] = (),
         preserve_comments: bool = False,
-        interwiki_map: Mapping[str, str] = None,
-        client: MediaWikiClient = None,
+        interwiki_map: Mapping[str, str] | None = None,
+        client: MediaWikiClient | None = None,
     ):
         super().__init__(content, site, preserve_comments=preserve_comments, interwiki_map=interwiki_map)
         self.title = title
@@ -60,7 +60,7 @@ class WikiPage(Root):
         return f'<{self.__class__.__name__}[{self.title!r} @ {self.site}]>'
 
     @cached_property
-    def _sort_key(self) -> tuple[bool, str, Optional[str]]:
+    def _sort_key(self) -> tuple[bool, str, str | None]:
         return self.is_disambiguation, self.title, self.site
 
     def __eq__(self, other: WikiPage) -> bool:
@@ -79,7 +79,7 @@ class WikiPage(Root):
     # region Links
 
     @cached_property
-    def similar_name_link(self) -> Optional[Link]:
+    def similar_name_link(self) -> Link | None:
         """The first non-disambiguation link from the ``about`` template on this page, if any."""
         try:
             link = self.about_links[0]
@@ -101,7 +101,7 @@ class WikiPage(Root):
             return []
 
     @cached_property
-    def disambiguation_link(self) -> Optional[Link]:
+    def disambiguation_link(self) -> Link | None:
         if any('articles needing clarification' in cat for cat in self.categories):
             return Link.from_title(f'{self.title}_(disambiguation)', self)
         elif (about_links := self.about_links) and about_links[-1].title == f'{self.title}_(disambiguation)':
@@ -167,7 +167,7 @@ class WikiPage(Root):
     # region Content
 
     @cached_property
-    def infobox(self) -> Optional[Template]:
+    def infobox(self) -> Template | None:
         """
         Turns the infobox into a dict.  Values are returned as :class:`WikiText<wikitextparser.WikiText>` to allow for
         further processing of links or other data structures.  Wiki lists are converted to Python lists of WikiText
@@ -185,7 +185,7 @@ class WikiPage(Root):
                 log.log(9, f'Error iterating over first section content of {self}: {e}')
         return None
 
-    def intro(self, strip_refs: bool = False) -> Union[String, CompoundNode, None]:
+    def intro(self, strip_refs: bool = False) -> String | CompoundNode | None:
         """
         Neither parser provides access to the 1st paragraph directly when an infobox template precedes it - need to
         remove the infobox from the 1st section, or any other similar elements.

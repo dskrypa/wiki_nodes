@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING, Any, Collection, Iterator
 from ..exceptions import WikiResponseError
 from ..utils import partitioned
 from ..version import LooseVersion
-from .utils import TitleDataMap, Titles, _multi_value_param, _normalize_params
+from .utils import _multi_value_param, _normalize_params
 
 if TYPE_CHECKING:
     from requests import Response
 
-    from ..typing import OptStr, StrOrStrs
+    from ._typing import OptStr, StrOrStrs, TitleDataMap, Titles
     from .client import MediaWikiClient
 
 __all__ = ['Query', 'QueryResponse', 'PageData']
@@ -293,9 +293,9 @@ class PageData:
         # if 'revisions' not in page:
         #     qlog.debug(f' > Content: {dumps(page, sort_keys=True, indent=4)}')
         if redirected_from := redirects.get(title):
-            content = {'redirected_from': redirected_from}
+            content: dict[str, Any] = {'redirected_from': redirected_from}
         else:
-            content = {}
+            content: dict[str, Any] = {}
 
         for key, val in data.items():
             if key == 'revisions':
@@ -321,10 +321,11 @@ class PageData:
 
     def update(self, data: PageData | dict[str, Any]):
         try:
-            data = data.data
+            data = data.data  # type: ignore
         except AttributeError:
             pass
-        for key, val in data.items():
+
+        for key, val in data.items():  # type: ignore
             if key == 'iwlinks':
                 self._update_iw_links(val)
             else:
@@ -346,9 +347,9 @@ class PageData:
             self.data[key] = value
         else:
             if isinstance(full_val, list):
-                full_val.extend(value)
+                full_val.extend(value)  # type: ignore
             elif isinstance(full_val, dict):
-                full_val.update(value)
+                full_val.update(value)  # type: ignore
             elif isinstance(full_val, int):
                 self.data[key] = value
             elif key in self._skip_merge:

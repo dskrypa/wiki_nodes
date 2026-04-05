@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Collection
 from .utils import _normalize_params
 
 if TYPE_CHECKING:
-    from ..typing import StrOrStrs
+    from ._typing import StrOrStrs
     from .client import MediaWikiClient
 
 __all__ = ['Parse']

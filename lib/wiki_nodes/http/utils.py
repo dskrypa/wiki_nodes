@@ -5,17 +5,12 @@ MediaWikiClient utilities.
 from __future__ import annotations
 
 import re
-from typing import Iterable, Union, Any, Collection
-from urllib.parse import urlparse, unquote
+from typing import Any, Collection, Iterable
+from urllib.parse import unquote, urlparse
 
 from ..version import LooseVersion
 
 URL_MATCH = re.compile('^[a-zA-Z]+://').match
-
-TitleDataMap = dict[str, dict[str, Any]]
-PageEntry = dict[str, Union[str, list[str], None]]
-TitleEntryMap = dict[str, PageEntry]
-Titles = Union[str, Collection[str]]
 
 
 def normalize_title(title: str) -> str:

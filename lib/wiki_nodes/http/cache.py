@@ -6,15 +6,24 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union, Any, Mapping
+from typing import TYPE_CHECKING, Any, Literal, Mapping, TypedDict
 
-from db_cache import TTLDBCache, DBCache
+from db_cache import DBCache, TTLDBCache
 from db_cache.utils import get_user_cache_dir
 
-from .utils import Titles, normalize_title
+from .utils import normalize_title
 
 if TYPE_CHECKING:
-    from ..typing import PathLike
+    from ._typing import Titles
+
+    PathLike = str | Path
+    Memory = Literal[':memory:']
+
+    class CacheState(TypedDict):
+        ttl: int
+        base_dir: Path | Memory
+        img_dir: Path
+
 
 __all__ = ['WikiCache']
 log = logging.getLogger(__name__)
@@ -29,17 +38,19 @@ class WikiCache:
     searches: TTLDBCache
     normalized_titles: DBCache
     misc: TTLDBCache
+    base_dir: Path | Memory
+    img_dir: Path
 
-    def __init__(self, host: str, ttl: int = 21_600, base_dir: PathLike = None, img_dir: PathLike = None):
+    def __init__(self, host: str, ttl: int = 21_600, base_dir: PathLike | None = None, img_dir: PathLike | None = None):
         self.ttl = ttl  # Note: default value of 21_600 = 3600 * 6 (6 hours)
         self.base_dir = _prep_dir(base_dir, f'wiki/{host}')
         self.reset_caches(False)
-        self.img_dir = _prep_dir(img_dir, f'wiki/{host}/images')
+        self.img_dir = _prep_dir(img_dir, f'wiki/{host}/images')  # type: ignore
 
-    def __getstate__(self) -> dict[str, Union[int, Path]]:
+    def __getstate__(self) -> CacheState:
         return {'ttl': self.ttl, 'base_dir': self.base_dir, 'img_dir': self.img_dir}
 
-    def __setstate__(self, state: dict[str, Union[int, Path]]):
+    def __setstate__(self, state: CacheState):
         self.ttl = state['ttl']
         self.base_dir = state['base_dir']
         self.img_dir = state['img_dir']
@@ -78,7 +89,7 @@ class WikiCache:
         # log.debug(f'Storing for {group=} keys={data.keys()}')
         self.misc.update({(group, normalize_title(title)): value for title, value in data.items()})
 
-    def get_image(self, name: Optional[str]) -> bytes:
+    def get_image(self, name: str | None) -> bytes:
         if name:
             path = self.img_dir.joinpath(name)
             if path.exists():
@@ -86,16 +97,18 @@ class WikiCache:
                 return path.read_bytes()
         raise KeyError(name)
 
-    def store_image(self, name: Optional[str], data: bytes):
+    def store_image(self, name: str | None, data: bytes):
         if name:
             self.img_dir.joinpath(name).write_bytes(data)
 
 
-def _prep_dir(path: PathLike, default: str) -> Union[Path, str]:
+def _prep_dir(path: PathLike | None, default: str) -> Path | Memory:
     if path:
         if path == ':memory:':
             return path
-        path = Path(path)
+
+        path: Path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
     return get_user_cache_dir(default)

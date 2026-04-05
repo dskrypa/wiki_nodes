@@ -13,7 +13,7 @@ from functools import cached_property
 from io import BytesIO
 from json import JSONDecodeError
 from shutil import copyfileobj
-from typing import Any, Iterable, Iterator, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Mapping
 from urllib.parse import parse_qs, unquote, urlparse
 
 from db_cache import TTLDBCache
@@ -25,7 +25,12 @@ from ..version import LooseVersion
 from .cache import WikiCache
 from .parse import Parse
 from .query import Query
-from .utils import URL_MATCH, PageEntry, TitleDataMap, TitleEntryMap, Titles, _normalize_file_name, normalize_title
+from .utils import URL_MATCH, _normalize_file_name, normalize_title
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
+
+    from ._typing import PageEntry, TitleDataMap, TitleEntryMap, Titles
 
 __all__ = ['MediaWikiClient']
 log = logging.getLogger(__name__)
@@ -40,11 +45,11 @@ class MediaWikiClient(RequestsClient):
     _instances: dict[str, MediaWikiClient] = {}
 
     def __new__(cls, host_or_url: str, *args, **kwargs):
-        host = urlparse(host_or_url).hostname if URL_MATCH(host_or_url) else host_or_url
+        hostname = urlparse(host_or_url).hostname if URL_MATCH(host_or_url) else host_or_url
         try:
-            return cls._instances[host]
+            return cls._instances[hostname]  # type: ignore
         except KeyError:
-            cls._instances[host] = instance = super().__new__(cls)
+            cls._instances[hostname] = instance = super().__new__(cls)  # noqa
             return instance
 
     def __init__(self, host_or_url: str, *args, ttl=3600 * 6, wiki_cache: WikiCache = None, **kwargs):
@@ -95,12 +100,12 @@ class MediaWikiClient(RequestsClient):
     def siteinfo(self) -> dict[str, Any]:
         """Site metadata, including MediaWiki version.  Cached to disk with TTL = 24 hours."""
         try:
-            return self._siteinfo_cache[self.host]
+            return self._siteinfo_cache[self.host]  # noqa
         except KeyError:
             params = {'action': 'query', 'format': 'json', 'meta': 'siteinfo', 'siprop': 'general|interwikimap'}
             resp = self.get('api.php', params=params)  # type: Response
             try:
-                self._siteinfo_cache[self.host] = siteinfo = resp.json()['query']
+                self._siteinfo_cache[self.host] = siteinfo = resp.json()['query']  # noqa
             except JSONDecodeError:
                 site = self.host
                 if 'Not_a_valid_community' in resp.url:
@@ -109,6 +114,7 @@ class MediaWikiClient(RequestsClient):
                     except Exception:  # noqa
                         pass
                 raise InvalidWikiError(f'Invalid site: {site!r}')
+
             return siteinfo
 
     @cached_property
@@ -133,7 +139,7 @@ class MediaWikiClient(RequestsClient):
     def _merged_interwiki_map(self):
         return self.interwiki_map | self.lc_interwiki_map
 
-    def interwiki_client(self, iw_map_key: str) -> Optional[MediaWikiClient]:
+    def interwiki_client(self, iw_map_key: str) -> MediaWikiClient | None:
         if iw_map_key.startswith('w:c:'):
             community = iw_map_key.rsplit(':', 1)[-1]
             iw_map_key = 'w'
@@ -212,7 +218,7 @@ class MediaWikiClient(RequestsClient):
     def parse_page(self, page: str) -> dict[str, Any]:
         return Parse.page(self, page).get_results()
 
-    def query_content(self, titles: Titles) -> dict[str, Optional[str]]:
+    def query_content(self, titles: Titles) -> dict[str, str | None]:
         """Get the contents of the latest revision of one or more pages as wikitext."""
         pages = {}
         for title, data in Query.content(self, titles).get_results().items():
@@ -365,7 +371,7 @@ class MediaWikiClient(RequestsClient):
     @classmethod
     def get_multi_site_pages(
         cls,
-        site_title_map: Mapping[Union[str, MediaWikiClient], Iterable[str]],
+        site_title_map: Mapping[str | MediaWikiClient, Collection[str]],
         preserve_comments: bool = False,
         search: bool = False,
         no_cache: bool = False,
@@ -380,11 +386,10 @@ class MediaWikiClient(RequestsClient):
         :return: Tuple containing mappings of {site: results}, {site: errors}
         """
         client_title_map = {
-            (site if isinstance(site, cls) else cls(site, nopath=True)): titles
+            (site if isinstance(site, cls) else cls(site, nopath=True)): titles  # noqa
             for site, titles in site_title_map.items()
         }
         with ThreadPoolExecutor(max_workers=max(1, len(client_title_map))) as executor:
-            # noinspection PyTypeChecker
             futures = {
                 executor.submit(client.get_pages, titles, preserve_comments, search, no_cache, gsrwhat): client.host
                 for client, titles in client_title_map.items()
@@ -458,12 +463,10 @@ class MediaWikiClient(RequestsClient):
         all_image_titles = {img_title for img_titles in page_image_title_map.values() for img_title in img_titles}
         all_image_urls = self.get_image_urls(all_image_titles)
         page_image_url_map = {
-            page_title: {
-                img_title: url for img_title, url in ((img, all_image_urls.get(img)) for img in img_titles) if url
-            }
+            page_title: {img_title: url for img_title in img_titles if (url := all_image_urls.get(img_title))}
             for page_title, img_titles in page_image_title_map.items()
         }
-        return page_image_url_map
+        return page_image_url_map  # type: ignore
 
     def get_page_image_urls(self, page_titles: Titles) -> dict[str, dict[str, str]]:
         """
@@ -622,16 +625,16 @@ class PageQuery:
             self._cache.pages[title] = entry = {
                 'title': title,
                 'categories': data.get('categories') or [],
-                'wikitext': rev[0] if rev else None,
+                'wikitext': rev[0] if rev else '',
             }
-            yield title, normalize_title(title), data, entry
+            yield title, normalize_title(title), data, entry  # type: ignore
 
     def _process_pages_resp(self, title_data_map: TitleDataMap, allow_unexpected: bool = False):
         for title, norm_title, data, entry in self._response_entries(title_data_map):
             if redirected_from := normalize_title(data.get('redirected_from') or ''):
-                self._store_normalized(redirected_from, title, 'redirect')
+                self._store_normalized(redirected_from, title, 'redirect')  # noqa
                 if original := (self._original_title(redirected_from) or self._original_title(norm_title)):
-                    self._store_page(original, entry)
+                    self._store_page(original, entry)  # noqa
                 elif allow_unexpected:
                     self._store_page(title, entry)
                 else:
@@ -650,7 +653,7 @@ class PageQuery:
                     f'Received page {title=} from {self.client.host} that does not match any of the requested titles'
                 )
 
-    def _original_title(self, norm_title: str, title: str = None) -> Optional[str]:
+    def _original_title(self, norm_title: str, title: str = None) -> str | None:
         try:
             normalized, original = self._get_normalized_and_original_title(norm_title)
         except TypeError:  # None was returned
@@ -665,7 +668,7 @@ class PageQuery:
         lc_norm = norm_title.lower()
         if orig := self.norm_to_orig.get(lc_norm):
             return lc_norm, orig
-        if (norm_title := self.lc_norm_to_norm.get(lc_norm)) and (orig := self.norm_to_orig.get(norm_title)):
+        if (norm_title := self.lc_norm_to_norm.get(lc_norm)) and (orig := self.norm_to_orig.get(norm_title)):  # noqa
             return norm_title, orig
         return None
 

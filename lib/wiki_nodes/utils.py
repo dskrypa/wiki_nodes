@@ -112,10 +112,10 @@ class ClearableCachedPropertyMixin:
 
     def clear_cached_properties(self, *names: str, skip: Collection[str] = None):
         if not names:
-            names = self._cached_properties()
+            names = self._cached_properties()  # type: ignore
 
         if skip:
-            names = (name for name in names if name not in skip)
+            names = (name for name in names if name not in skip)  # type: ignore
 
         for prop in names:
             try:

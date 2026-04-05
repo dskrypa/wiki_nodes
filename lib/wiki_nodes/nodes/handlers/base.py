@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Type, Union, Optional, TypeVar, Generic, Iterable
+from typing import TYPE_CHECKING, ClassVar, Generic, Iterable, Optional, Type, TypeVar, Union
 
 if TYPE_CHECKING:
     from .nodes import Node  # noqa

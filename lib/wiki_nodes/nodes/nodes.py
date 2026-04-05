@@ -14,12 +14,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import MutableMapping
 from functools import cached_property
-from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, Mapping, Optional, Type, TypeVar, Union
-
-try:
-    from typing import Self
-except ImportError:
-    Self = TypeVar('Self')  # noqa
+from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, Mapping, Self, Type, TypeVar, Union
 
 from wikitextparser import (
     Section as _Section,
@@ -64,23 +59,8 @@ T = TypeVar('T')
 N = TypeVar('N', bound='Node')
 C = TypeVar('C', bound='Node')
 KT = TypeVar('KT')
-OptStr = Optional[str]
-Raw = Union[str, WikiText]
-AnyNode = Union[
-    'Node',
-    'BasicNode',
-    'CompoundNode',
-    'MappingNode',
-    'Tag',
-    'String',
-    'Link',
-    'ListEntry',
-    'List',
-    'Table',
-    'Template',
-    'Root',
-    'Section',
-]
+OptStr = str | None
+Raw = str | WikiText
 
 _NotSet = object()
 # TODO: Add way for .strings() to skip particular nodes, ideally in a way that allows multiple criteria to be specified
@@ -110,15 +90,18 @@ class Node(ClearableCachedPropertyMixin):
     @classmethod
     def normalize_raw(cls, raw: Raw, index: int = None) -> WikiText:
         if isinstance(raw, str):
-            raw = WikiText(raw)
+            raw: WikiText = WikiText(raw)
+
         if (attr := cls._raw_attr) and type(raw) is WikiText:
             raw_seq = getattr(raw, attr)
         elif (method := cls._raw_meth) and type(raw) is WikiText:
             raw_seq = getattr(raw, method)()
         else:
             return raw
+
         if index is None:
             index = 0
+
         try:
             return raw_seq[index]
         except IndexError as e:
@@ -157,7 +140,7 @@ class Node(ClearableCachedPropertyMixin):
     # endregion
 
     @property
-    def is_basic(self) -> Optional[bool]:
+    def is_basic(self) -> bool | None:
         return None
 
     def copy(self) -> Self:
@@ -208,7 +191,7 @@ class Node(ClearableCachedPropertyMixin):
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
         yield from ()
 
-    def find_one(self, node_cls: Type[N], *args, **kwargs) -> Optional[N]:
+    def find_one(self, node_cls: Type[N], *args, **kwargs) -> N | None:
         """
         :param node_cls: The class of :class:`Node` to find
         :param args: Positional args to pass to :meth:`.find_all`
@@ -309,7 +292,7 @@ class CompoundNode(ContainerNode[C]):
             clone.__dict__['children'] = [c.copy() for c in self.__dict__['children']]
         except KeyError:
             pass
-        return clone
+        return clone  # type: ignore
 
     def pformat(self, indentation: int = 0) -> str:
         indent = ' ' * indentation
@@ -332,7 +315,7 @@ class CompoundNode(ContainerNode[C]):
 
 class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
     __slots__ = ('children',)
-    children: dict[Union[str, C], Optional[C]]
+    children: dict[str | C, C | None]
 
     def __init__(self, raw: Raw, root: Root = None, preserve_comments: bool = False, content=None):
         super().__init__(raw, root, preserve_comments)
@@ -343,7 +326,7 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
     def keys(self):
         return self.children.keys()
 
-    def get(self, key: KT, default: T = None, case_sensitive: bool = True) -> Union[C, T]:
+    def get(self, key: KT, default: T = None, case_sensitive: bool = True) -> C | T:
         try:
             return self.children[key]
         except KeyError:
@@ -353,7 +336,7 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
         ci_key = key.casefold()
         for name, val in self.children.items():
             try:
-                if name.casefold() == ci_key:
+                if name.casefold() == ci_key:  # type: ignore
                     return val
             except AttributeError:
                 pass
@@ -366,8 +349,8 @@ class MappingNode(ContainerNode[C], MutableMapping[KT, C]):
 
     def copy(self) -> MappingNode[KT, C]:
         clone = super().copy()
-        clone.children = {_maybe_copy(k): _maybe_copy(v) for k, v in self.children.items()}
-        return clone
+        clone.children = {_maybe_copy(k): _maybe_copy(v) for k, v in self.children.items()}  # noqa
+        return clone  # type: ignore
 
     def pformat(self, indentation: int = 0):
         indent = ' ' * indentation
@@ -427,7 +410,7 @@ class Tag(BasicNode, method='get_tags'):
         return self.handler.get_value()
 
     @property
-    def is_basic(self) -> Optional[bool]:
+    def is_basic(self) -> bool | None:
         if (value := self.value) is not None:
             return not isinstance(value, Node) or value.is_basic
         return True
@@ -484,7 +467,7 @@ class String(BasicNode):
     def __str__(self) -> str:
         return self.value
 
-    def __eq__(self, other: Union[Node, str]) -> bool:
+    def __eq__(self, other: Node | str) -> bool:
         if isinstance(other, str):
             return self.value == other
         return super().__eq__(other)
@@ -492,7 +475,7 @@ class String(BasicNode):
     def __hash__(self) -> int:
         return hash(self.__class__) ^ hash(self.value)
 
-    def __add__(self, other: Union[Node, str]) -> String:
+    def __add__(self, other: Node | str) -> String:
         try:
             other_str = other.raw.string
         except AttributeError:
@@ -586,13 +569,13 @@ class Link(BasicNode):
             yield self.show.strip() if strip else self.show
 
     @cached_property
-    def show(self) -> Optional[str]:
+    def show(self) -> OptStr:
         """The text that would be shown for this link (without fragment)"""
         text = self.text or self.title
         return text.strip() if text else None
 
     @cached_property
-    def source_site(self) -> Optional[str]:
+    def source_site(self) -> OptStr:
         return self.root.site if self.root else None
 
     @cached_property
@@ -627,7 +610,7 @@ class Link(BasicNode):
         raise ValueError(f'{self} is not an interwiki link')
 
     @cached_property
-    def url(self) -> Optional[str]:
+    def url(self) -> OptStr:
         """The fully resolved URL for this link"""
         try:
             mw_client, title = self.client_and_title
@@ -715,7 +698,7 @@ class ListEntry(CompoundNode[C]):
             yield from _strings(value, strip)
 
     @cached_property
-    def sub_list(self) -> Optional[List[ListEntry[C]]]:
+    def sub_list(self) -> List[ListEntry[C]] | None:
         if not self._children:
             return None
         content = '\n'.join(c[1:] for c in map(str.strip, self._children.splitlines()))
@@ -824,7 +807,7 @@ class List(CompoundNode[ListEntry[C]], method='get_lists'):
             self._as_mapping = MappingNode(self.raw, self.root, self.preserve_comments, self.as_dict(*args, **kwargs))
         return self._as_mapping
 
-    def as_dict(self, sep: str = ':', multiline=None) -> dict[Union[str, C], Optional[C]]:
+    def as_dict(self, sep: str = ':', multiline=None) -> dict[str | C, C | None]:
         data = {}
 
         def node_fn(node_str: str):
@@ -934,7 +917,7 @@ class Table(CompoundNode[Union[TableSeparator, MappingNode[KT, C]]], attr='table
     _rowspan_with_template = re.compile(r'(\|\s*rowspan="?\d+"?)\s*{')
     _header_ws_pat = re.compile(r'\s*<br\s*/?>\s*')
     raw: _Table
-    caption: Optional[str]
+    caption: OptStr
 
     def __init__(self, raw: Union[Raw, _Table], root: Root = None, preserve_comments: bool = False):
         super().__init__(raw, root, preserve_comments)
@@ -1093,7 +1076,7 @@ class Template(BasicNode, attr='templates'):
         yield from _strings(self.value, strip)
 
     @cached_property
-    def zipped(self) -> Optional[MappingNode]:
+    def zipped(self) -> MappingNode | None:
         return self.handler.zip_value(self.value)
 
     def find_all(self, node_cls: Type[N], recurse: bool = False, **kwargs) -> Iterator[N]:
@@ -1156,7 +1139,7 @@ class Template(BasicNode, attr='templates'):
 
 class Root(Node):
     site: OptStr
-    _interwiki_map: Optional[Mapping[str, str]]
+    _interwiki_map: Mapping[str, str] | None
 
     def __init__(
         self,
@@ -1171,10 +1154,10 @@ class Root(Node):
         self.site = site
         self._interwiki_map = interwiki_map
 
-    def __getitem__(self, title_or_index: Union[str, int]) -> Section:
+    def __getitem__(self, title_or_index: str | int) -> Section:
         return self.sections[title_or_index]
 
-    def __contains__(self, title_or_index: Union[str, int]) -> bool:
+    def __contains__(self, title_or_index: str | int) -> bool:
         return title_or_index in self.sections
 
     def __iter__(self) -> Iterator[Section]:
@@ -1182,9 +1165,7 @@ class Root(Node):
         yield root
         yield from root
 
-    def find_section(
-        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = True
-    ) -> Union[Section, T]:
+    def find_section(self, title_or_index: str | int, default: T = _NotSet, case_sensitive: bool = True) -> Section | T:
         return self.sections.find_section(title_or_index, default, case_sensitive=case_sensitive)
 
     def find_all(self, node_cls: Type[N], recurse: bool = True, **kwargs) -> Iterator[N]:
@@ -1235,16 +1216,16 @@ class Section(ContainerNode['Section'], method='get_sections'):
     raw: _Section
     title: str
     level: int
-    parent: Optional[Section]
+    parent: Section | None
     children: dict[str, Section] = None  # = None is necessary to satisfy the abstract property
     _subsections: list[Section]
 
     def __init__(
         self,
         raw: Union[Raw, _Section],
-        root: Optional[Root],
+        root: Root | None,
         preserve_comments: bool = False,
-        parent: Optional[Section] = None,
+        parent: Section | None = None,
         _index: int = None,
     ):
         super().__init__(raw, root, preserve_comments, _index)
@@ -1265,7 +1246,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}[{self.level}: {self.title}]>'
 
-    def __getitem__(self, title_or_index: Union[str, int]) -> Section:
+    def __getitem__(self, title_or_index: str | int) -> Section:
         try:
             return self.children[title_or_index]
         except KeyError:
@@ -1276,7 +1257,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
             pass
         raise KeyError(title_or_index)
 
-    def __contains__(self, title_or_index: Union[str, int]) -> bool:
+    def __contains__(self, title_or_index: str | int) -> bool:
         if title_or_index in self.children:
             return True
         elif isinstance(title_or_index, int):
@@ -1324,18 +1305,14 @@ class Section(ContainerNode['Section'], method='get_sections'):
             return max(section.depth for section in self.children.values()) + 1
         return 0
 
-    def find_section(
-        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = True
-    ) -> Union[Section, T]:
+    def find_section(self, title_or_index: str | int, default: T = _NotSet, case_sensitive: bool = True) -> Section | T:
         return self._find(title_or_index, default, case_sensitive=case_sensitive)
 
-    def find(self, title_or_index: Union[str, int], default: T = _NotSet) -> Union[Section, T]:
+    def find(self, title_or_index: str | int, default: T = _NotSet) -> Section | T:
         """Find the subsection with the given title"""
         return self._find(title_or_index, default, case_sensitive=True)
 
-    def _find(
-        self, title_or_index: Union[str, int], default: T = _NotSet, case_sensitive: bool = True
-    ) -> Union[Section, T]:
+    def _find(self, title_or_index: str | int, default: T = _NotSet, case_sensitive: bool = True) -> Section | T:
         try:
             return self.children[title_or_index]
         except KeyError:
@@ -1375,7 +1352,7 @@ class Section(ContainerNode['Section'], method='get_sections'):
     # region Content Processing Methods
 
     @cached_property
-    def content(self) -> Optional[AnyNode]:
+    def content(self) -> AnyNode | None:
         if self.level == 0:
             raw = self.raw.string.strip()  # without .string here, .tags() returns the full page's tags
             node = as_node(raw, self.root, self.preserve_comments)
@@ -1481,6 +1458,23 @@ class Section(ContainerNode['Section'], method='get_sections'):
                 yield from child._pformat(mode, indent=indent, recurse=recurse)
 
     # endregion
+
+
+AnyNode = (
+    Node
+    | BasicNode
+    | CompoundNode
+    | MappingNode
+    | Tag
+    | String
+    | Link
+    | ListEntry
+    | List
+    | Table
+    | Template
+    | Root
+    | Section
+)
 
 
 # region Helper functions
